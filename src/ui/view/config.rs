@@ -1,10 +1,11 @@
 use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
-use crate::config::{Config, Provider as ConfigProvider, StepFunConfig, MiniMaxConfig};
+use crate::config::Config;
 use crate::ui::AppTheme;
 
 /// Represents the fields users can navigate and edit in the config view
@@ -147,23 +148,23 @@ impl ConfigField {
 }
 
 pub struct ConfigView<'a> {
-    config: &'a mut Config,
+    config: &'a Config,
     fields: Vec<ConfigField>,
     selected: usize,
     editing: bool,
-    edit_buffer: String,
+    edit_buffer: &'a str,
     theme: &'a AppTheme,
 }
 
 impl<'a> ConfigView<'a> {
-    pub fn new(config: &'a mut Config, theme: &'a AppTheme) -> Self {
+    pub fn new(config: &'a Config, theme: &'a AppTheme) -> Self {
         let fields = ConfigField::build_fields(config);
         Self {
             config,
             fields,
             selected: 0,
             editing: false,
-            edit_buffer: String::new(),
+            edit_buffer: "",
             theme,
         }
     }
@@ -173,172 +174,18 @@ impl<'a> ConfigView<'a> {
         self
     }
 
+    pub fn with_editing(mut self, editing: bool) -> Self {
+        self.editing = editing;
+        self
+    }
+
+    pub fn with_edit_buffer(mut self, buffer: &'a str) -> Self {
+        self.edit_buffer = buffer;
+        self
+    }
+
     fn current_field(&self) -> ConfigField {
         self.fields[self.selected]
-    }
-
-    fn start_edit(&mut self) {
-        let field = self.current_field();
-        if field.is_model() {
-            return;
-        }
-        self.editing = true;
-        self.edit_buffer = self.get_current_value();
-    }
-
-    fn get_current_value(&self) -> String {
-        match self.current_field() {
-            ConfigField::ActiveProvider => self.config.default_provider.to_string(),
-            ConfigField::StepFunApiKey => {
-                self.config.stepfun.as_ref().map(|s| s.api_key.clone()).unwrap_or_default()
-            }
-            ConfigField::MiniMaxApiKey => {
-                self.config.minimax.as_ref().map(|m| m.api_key.clone()).unwrap_or_default()
-            }
-            _ => String::new(),
-        }
-    }
-
-    fn apply_edit(&mut self) {
-        match self.current_field() {
-            ConfigField::ActiveProvider => {
-                match self.edit_buffer.to_lowercase().as_str() {
-                    "stepfun" => self.config.default_provider = ConfigProvider::StepFun,
-                    "minimax" => self.config.default_provider = ConfigProvider::MiniMax,
-                    _ => {}
-                }
-            }
-            ConfigField::StepFunApiKey => {
-                if self.edit_buffer.is_empty() {
-                    self.config.stepfun = None;
-                } else {
-                    let cfg = self.config.stepfun.get_or_insert_with(|| StepFunConfig {
-                        api_key: String::new(),
-                        base_url: None,
-                        model: None,
-                        models: crate::config::ProviderModels::default(),
-                    });
-                    cfg.api_key = self.edit_buffer.clone();
-                }
-            }
-            ConfigField::MiniMaxApiKey => {
-                if self.edit_buffer.is_empty() {
-                    self.config.minimax = None;
-                } else {
-                    let cfg = self.config.minimax.get_or_insert_with(|| MiniMaxConfig {
-                        api_key: String::new(),
-                        group_id: None,
-                        base_url: None,
-                        model: None,
-                        models: crate::config::ProviderModels::default(),
-                    });
-                    cfg.api_key = self.edit_buffer.clone();
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn cancel_edit(&mut self) {
-        self.editing = false;
-        self.edit_buffer.clear();
-    }
-
-    pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool {
-        use crossterm::event::KeyCode;
-
-        if self.editing {
-            match key.code {
-                KeyCode::Char(c) => {
-                    self.edit_buffer.push(c);
-                    true
-                }
-                KeyCode::Backspace => {
-                    self.edit_buffer.pop();
-                    true
-                }
-                KeyCode::Enter => {
-                    self.apply_edit();
-                    self.editing = false;
-                    true
-                }
-                KeyCode::Esc => {
-                    self.cancel_edit();
-                    true
-                }
-                _ => false,
-            }
-        } else {
-            let field = self.current_field();
-            match key.code {
-                KeyCode::Up => {
-                    self.selected = self.selected.saturating_sub(1);
-                    true
-                }
-                KeyCode::Down => {
-                    self.selected = (self.selected + 1).min(self.fields.len() - 1);
-                    true
-                }
-                KeyCode::Left if field.is_model() => {
-                    self.cycle_model(-1);
-                    true
-                }
-                KeyCode::Right if field.is_model() => {
-                    self.cycle_model(1);
-                    true
-                }
-                KeyCode::Enter => {
-                    self.start_edit();
-                    true
-                }
-                _ => false,
-            }
-        }
-    }
-
-    fn cycle_model(&mut self, direction: i32) {
-        let field = self.current_field();
-        let category = match field.category() {
-            Some(c) => c,
-            None => return,
-        };
-        let provider = match field.provider() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let models = match provider {
-            crate::config::Provider::StepFun => {
-                self.config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .cloned()
-                    .unwrap_or_default()
-            }
-            crate::config::Provider::MiniMax => {
-                self.config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .cloned()
-                    .unwrap_or_default()
-            }
-        };
-
-        if models.is_empty() {
-            return;
-        }
-
-        let current = self.get_current_model(&provider, category);
-        let current_idx = models.iter().position(|m| m == &current).unwrap_or(0);
-
-        let new_idx = if direction > 0 {
-            (current_idx + 1) % models.len()
-        } else {
-            current_idx.saturating_sub(1).max(models.len() - 1)
-        };
-        let new_model = models[new_idx].clone();
-
-        self.set_model(&provider, category, new_model);
     }
 
     fn get_current_model(&self, provider: &crate::config::Provider, category: &str) -> String {
@@ -356,50 +203,6 @@ impl<'a> ConfigView<'a> {
                     .and_then(|cm| cm.default.clone())
                     .or_else(|| self.config.minimax.as_ref().and_then(|mm| mm.model.clone()))
                     .unwrap_or_default()
-            }
-        }
-    }
-
-    fn set_model(&mut self, provider: &crate::config::Provider, category: &str, model: String) {
-        let config = &mut self.config;
-        match provider {
-            crate::config::Provider::StepFun => {
-                if let Some(ref mut sf) = config.stepfun {
-                    let category_model = match category {
-                        "chat" => sf.models.chat.as_mut(),
-                        "image" => sf.models.image.as_mut(),
-                        "speech" => sf.models.speech.as_mut(),
-                        "video" => sf.models.video.as_mut(),
-                        "music" => sf.models.music.as_mut(),
-                        "vision" => sf.models.vision.as_mut(),
-                        _ => None,
-                    };
-                    if let Some(cm) = category_model {
-                        cm.default = Some(model.clone());
-                    }
-                    if category == "chat" {
-                        sf.model = Some(model);
-                    }
-                }
-            }
-            crate::config::Provider::MiniMax => {
-                if let Some(ref mut mm) = config.minimax {
-                    let category_model = match category {
-                        "chat" => mm.models.chat.as_mut(),
-                        "image" => mm.models.image.as_mut(),
-                        "speech" => mm.models.speech.as_mut(),
-                        "video" => mm.models.video.as_mut(),
-                        "music" => mm.models.music.as_mut(),
-                        "vision" => mm.models.vision.as_mut(),
-                        _ => None,
-                    };
-                    if let Some(cm) = category_model {
-                        cm.default = Some(model.clone());
-                    }
-                    if category == "chat" {
-                        mm.model = Some(model);
-                    }
-                }
             }
         }
     }
@@ -427,14 +230,9 @@ impl<'a> ConfigView<'a> {
                     .style(Style::default().fg(Color::DarkGray)));
             }
 
-            let is_editing = is_selected && self.editing;
-            let content = self.render_field_content(field, is_selected, is_editing);
+            let content = self.render_field_content(field, is_selected);
 
-            let style = if is_editing {
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::REVERSED)
-            } else if is_selected {
+            let style = if is_selected {
                 Style::default()
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD)
@@ -458,7 +256,7 @@ impl<'a> ConfigView<'a> {
         f.render_widget(list, area);
 
         let help_text = if self.editing {
-            "↑↓ Navigate  Enter: Confirm  Esc: Cancel  Type to edit"
+            "Enter: Save  Esc: Cancel"
         } else {
             "↑↓ Navigate  ←→: Cycle models  Enter: Edit  q: Quit"
         };
@@ -474,41 +272,102 @@ impl<'a> ConfigView<'a> {
         );
 
         f.render_widget(help_para, help_area);
+
+        if self.editing {
+            self.render_popup(f, area);
+        }
     }
 
-    fn render_field_content(&self, field: &ConfigField, is_selected: bool, is_editing: bool) -> String {
+    fn render_popup(&self, f: &mut Frame, area: ratatui::layout::Rect) {
+        let theme = self.theme;
+        let field = self.current_field();
+
+        let popup_area = Self::centered_popup_area(area);
+        f.render_widget(Clear, popup_area);
+
+        let title = match field {
+            ConfigField::ActiveProvider => "Edit Active Provider",
+            ConfigField::StepFunApiKey => "Edit StepFun API Key",
+            ConfigField::MiniMaxApiKey => "Edit MiniMax API Key",
+            _ => "Edit Field",
+        };
+
+        let edit_content = self.edit_buffer;
+        let display_text = format!("{}█", edit_content);
+
+        let block = Block::default()
+            .title(format!(" {} ", title))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.accent));
+
+        let inner = block.inner(popup_area);
+        f.render_widget(block, popup_area);
+
+        let input_para = Paragraph::new(display_text)
+            .style(Style::default().fg(Color::White));
+        let input_area = Rect::new(
+            inner.x + 1,
+            inner.y + 2,
+            inner.width.saturating_sub(2),
+            1,
+        );
+        f.render_widget(input_para, input_area);
+
+        let help = "Enter: Save  Esc: Cancel";
+        let help_para = Paragraph::new(help)
+            .style(Style::default().fg(Color::DarkGray));
+        let help_area = Rect::new(
+            inner.x + 1,
+            inner.bottom() - 1,
+            inner.width.saturating_sub(2),
+            1,
+        );
+        f.render_widget(help_para, help_area);
+    }
+
+    fn centered_popup_area(area: Rect) -> Rect {
+        let vertical = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(30),
+                Constraint::Length(7),
+                Constraint::Percentage(30),
+            ])
+            .split(area);
+
+        let horizontal = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(20),
+                Constraint::Percentage(60),
+                Constraint::Percentage(20),
+            ])
+            .split(vertical[1]);
+
+        horizontal[1]
+    }
+
+    fn render_field_content(&self, field: &ConfigField, is_selected: bool) -> String {
         let prefix = if is_selected { "► " } else { "  " };
 
         match field {
             ConfigField::ActiveProvider => {
                 let value = self.config.default_provider.to_string();
-                if is_editing {
-                    format!("{}Active Provider: {}{}", prefix, self.edit_buffer, "█")
-                } else {
-                    format!("{}Active Provider: {}", prefix, value)
-                }
+                format!("{}Active Provider: {}", prefix, value)
             }
             ConfigField::StepFunApiKey => {
                 let value = match self.config.stepfun.as_ref() {
                     Some(s) => Self::mask_api_key(&s.api_key),
                     None => "(not set)".to_string(),
                 };
-                if is_editing {
-                    format!("{}API Key: {}{}", prefix, self.edit_buffer, "█")
-                } else {
-                    format!("{}API Key: {}", prefix, value)
-                }
+                format!("{}API Key: {}", prefix, value)
             }
             ConfigField::MiniMaxApiKey => {
                 let value = match self.config.minimax.as_ref() {
                     Some(m) => Self::mask_api_key(&m.api_key),
                     None => "(not set)".to_string(),
                 };
-                if is_editing {
-                    format!("{}API Key: {}{}", prefix, self.edit_buffer, "█")
-                } else {
-                    format!("{}API Key: {}", prefix, value)
-                }
+                format!("{}API Key: {}", prefix, value)
             }
             _ => {
                 let provider = field.provider().unwrap();

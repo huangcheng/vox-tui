@@ -224,6 +224,12 @@ impl AppState {
                 input::InputAction::ScrollDown if !self.config_editing => {
                     self.config_selected = (self.config_selected + 1).min(self.config_fields().len().saturating_sub(1));
                 }
+                input::InputAction::Left if !self.config_editing => {
+                    self.cycle_config_model(-1);
+                }
+                input::InputAction::Right if !self.config_editing => {
+                    self.cycle_config_model(1);
+                }
                 _ => {}
             }
         }
@@ -294,6 +300,112 @@ impl AppState {
         let new_fields = self.config_fields();
         if self.config_selected >= new_fields.len() {
             self.config_selected = new_fields.len().saturating_sub(1);
+        }
+    }
+
+    fn cycle_config_model(&mut self, direction: i32) {
+        use crate::config::Provider;
+
+        let fields = self.config_fields();
+        let field = match fields.get(self.config_selected).copied() {
+            Some(f) => f,
+            None => return,
+        };
+
+        let category = match field.category() {
+            Some(c) => c,
+            None => return,
+        };
+        let provider = match field.provider() {
+            Some(p) => p,
+            None => return,
+        };
+
+        let models = match provider {
+            Provider::StepFun => {
+                self.config.stepfun.as_ref()
+                    .and_then(|sf| sf.models.get(category))
+                    .and_then(|cm| cm.available.as_ref())
+                    .cloned()
+                    .unwrap_or_default()
+            }
+            Provider::MiniMax => {
+                self.config.minimax.as_ref()
+                    .and_then(|mm| mm.models.get(category))
+                    .and_then(|cm| cm.available.as_ref())
+                    .cloned()
+                    .unwrap_or_default()
+            }
+        };
+
+        if models.is_empty() {
+            return;
+        }
+
+        let current = match provider {
+            Provider::StepFun => {
+                self.config.stepfun.as_ref()
+                    .and_then(|sf| sf.models.get(category))
+                    .and_then(|cm| cm.default.clone())
+                    .or_else(|| self.config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
+                    .unwrap_or_default()
+            }
+            Provider::MiniMax => {
+                self.config.minimax.as_ref()
+                    .and_then(|mm| mm.models.get(category))
+                    .and_then(|cm| cm.default.clone())
+                    .or_else(|| self.config.minimax.as_ref().and_then(|mm| mm.model.clone()))
+                    .unwrap_or_default()
+            }
+        };
+
+        let current_idx = models.iter().position(|m| m == &current).unwrap_or(0);
+        let new_idx = if direction > 0 {
+            (current_idx + 1) % models.len()
+        } else {
+            current_idx.saturating_sub(1).max(models.len() - 1)
+        };
+        let new_model = models[new_idx].clone();
+
+        match provider {
+            Provider::StepFun => {
+                if let Some(ref mut sf) = self.config.stepfun {
+                    let category_model = match category {
+                        "chat" => sf.models.chat.as_mut(),
+                        "image" => sf.models.image.as_mut(),
+                        "speech" => sf.models.speech.as_mut(),
+                        "video" => sf.models.video.as_mut(),
+                        "music" => sf.models.music.as_mut(),
+                        "vision" => sf.models.vision.as_mut(),
+                        _ => None,
+                    };
+                    if let Some(cm) = category_model {
+                        cm.default = Some(new_model.clone());
+                    }
+                    if category == "chat" {
+                        sf.model = Some(new_model);
+                    }
+                }
+            }
+            Provider::MiniMax => {
+                if let Some(ref mut mm) = self.config.minimax {
+                    let category_model = match category {
+                        "chat" => mm.models.chat.as_mut(),
+                        "image" => mm.models.image.as_mut(),
+                        "speech" => mm.models.speech.as_mut(),
+                        "video" => mm.models.video.as_mut(),
+                        "music" => mm.models.music.as_mut(),
+                        "vision" => mm.models.vision.as_mut(),
+                        _ => None,
+                    };
+                    if let Some(cm) = category_model {
+                        cm.default = Some(new_model.clone());
+                    }
+                    if category == "chat" {
+                        mm.model = Some(new_model);
+                    }
+                }
+            }
         }
     }
 
@@ -1053,8 +1165,10 @@ async fn run_app<B: ratatui::backend::Backend>(
                     audio_view.render(f, main);
                 }
                 View::Config => {
-                    let config_view = ConfigView::new(&mut app.config, &theme)
-                        .with_selected(app.config_selected);
+                    let config_view = ConfigView::new(&app.config, &theme)
+                        .with_selected(app.config_selected)
+                        .with_editing(app.config_editing)
+                        .with_edit_buffer(&app.config_edit_buffer);
                     config_view.render(f, main);
                 }
             }
