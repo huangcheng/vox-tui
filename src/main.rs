@@ -226,11 +226,13 @@ impl AppState {
                     input::InputAction::SwitchView(idx) => self.switch_view(idx),
                     input::InputAction::ScrollUp => self.config_editor.navigate_up(&self.config),
                     input::InputAction::ScrollDown => self.config_editor.navigate_down(&self.config),
-                    input::InputAction::Left => self.config_editor.cycle_model(&mut self.config, -1),
-                    input::InputAction::Right => self.config_editor.cycle_model(&mut self.config, 1),
+                    input::InputAction::Left => self.config_editor.cycle_field(&mut self.config, -1),
+                    input::InputAction::Right => self.config_editor.cycle_field(&mut self.config, 1),
                     input::InputAction::Submit => {
                         self.config_editor.start_edit(&self.config);
-                        self.input_mode = InputMode::ConfigEditing;
+                        if self.config_editor.editing {
+                            self.input_mode = InputMode::ConfigEditing;
+                        }
                     }
                     input::InputAction::Escape => {
                         self.input_mode = InputMode::Normal;
@@ -713,10 +715,17 @@ mod tests {
         let mut app = AppState::new();
         app.switch_view(3);
         app.input_mode = InputMode::ConfigNavigating;
+        // ActiveProvider (index 0) is a selector, not editable
         assert!(!app.config_editor.editing);
         app.handle_input(input::InputAction::Submit);
+        assert!(!app.config_editor.editing);
+        assert_eq!(app.input_mode, InputMode::ConfigNavigating);
+
+        // Navigate to an editable field (API key) and try again
+        app.config_editor.selected = 1; // StepFunApiKey or MiniMaxApiKey
+        app.handle_input(input::InputAction::Submit);
         assert!(app.config_editor.editing);
-        assert!(!app.config_editor.edit_buffer.is_empty());
+        assert_eq!(app.input_mode, InputMode::ConfigEditing);
     }
 
     #[test]
@@ -724,6 +733,8 @@ mod tests {
         let mut app = AppState::new();
         app.switch_view(3);
         app.input_mode = InputMode::ConfigNavigating;
+        // Navigate to an editable field (index 1)
+        app.config_editor.selected = 1;
         app.handle_input(input::InputAction::Submit);
         app.config_editor.edit_buffer.push('x');
         app.handle_input(input::InputAction::Escape);
@@ -736,6 +747,8 @@ mod tests {
         let mut app = AppState::new();
         app.switch_view(3);
         app.input_mode = InputMode::ConfigNavigating;
+        // Navigate to an editable field (index 1)
+        app.config_editor.selected = 1;
         app.handle_input(input::InputAction::Submit);
         let initial_len = app.config_editor.edit_buffer.len();
         app.handle_input(input::InputAction::Char('n'));
@@ -750,6 +763,8 @@ mod tests {
         let mut app = AppState::new();
         app.switch_view(3);
         app.input_mode = InputMode::ConfigNavigating;
+        // Navigate to an editable field (index 1)
+        app.config_editor.selected = 1;
         app.handle_input(input::InputAction::Submit);
         app.config_editor.edit_buffer.push('x');
         app.config_editor.edit_buffer.push('y');
@@ -763,10 +778,11 @@ mod tests {
         let mut app = AppState::new();
         app.switch_view(3);
         app.input_mode = InputMode::ConfigNavigating;
-        app.config_editor.selected = 0;
+        // Navigate to an editable field (index 1)
+        app.config_editor.selected = 1;
         app.handle_input(input::InputAction::Submit);
         app.handle_input(input::InputAction::ScrollDown);
-        assert_eq!(app.config_editor.selected, 0);
+        assert_eq!(app.config_editor.selected, 1);
         assert!(app.config_editor.editing);
     }
 }

@@ -469,6 +469,14 @@ impl ConfigField {
         self.category().is_some()
     }
 
+    /// Is this field cycleable with left/right arrows?
+    pub fn is_cycleable(&self) -> bool {
+        match self {
+            ConfigField::ActiveProvider => true,
+            _ => self.is_model(),
+        }
+    }
+
     /// Which provider does this field belong to?
     pub fn provider(&self) -> Option<Provider> {
         match self {
@@ -544,9 +552,12 @@ impl ConfigEditor {
     }
 
     pub fn start_edit(&mut self, config: &Config) {
-        self.editing = true;
         let fields = self.fields(config);
         let field = fields.get(self.selected).copied().unwrap_or(ConfigField::ActiveProvider);
+        if field == ConfigField::ActiveProvider {
+            return; // ActiveProvider is a selector, not text-editable
+        }
+        self.editing = true;
         self.edit_buffer = self.get_field_value(config, field);
     }
 
@@ -655,13 +666,31 @@ impl ConfigEditor {
         }
     }
 
-    pub fn cycle_model(&mut self, config: &mut Config, direction: i32) {
+    pub fn cycle_field(&mut self, config: &mut Config, direction: i32) {
         let fields = ConfigField::build_fields(config);
         let field = match fields.get(self.selected).copied() {
             Some(f) => f,
             None => return,
         };
 
+        // Handle ActiveProvider cycling
+        if field == ConfigField::ActiveProvider {
+            let providers = config.configured_providers();
+            if providers.len() <= 1 {
+                return; // Nothing to cycle
+            }
+            let current_idx = providers.iter().position(|p| p == &config.default_provider).unwrap_or(0);
+            let new_idx = if direction > 0 {
+                (current_idx + 1) % providers.len()
+            } else {
+                current_idx.saturating_sub(1).max(providers.len() - 1)
+            };
+            config.default_provider = providers[new_idx].clone();
+            let _ = config.save();
+            return;
+        }
+
+        // Handle model field cycling
         let category = match field.category() {
             Some(c) => c,
             None => return,
@@ -1171,9 +1200,15 @@ api_key = "sk-backward-compat"
     fn test_config_editor_start_edit() {
         let mut editor = ConfigEditor::new();
         let config = sample_config();
+        // ActiveProvider (index 0) is a selector, not editable
+        editor.start_edit(&config);
+        assert!(!editor.editing);
+
+        // Navigate to StepFunApiKey (index 1) and try again
+        editor.selected = 1;
         editor.start_edit(&config);
         assert!(editor.editing);
-        assert_eq!(editor.edit_buffer, "stepfun");
+        assert_eq!(editor.edit_buffer, "sk-test-key");
     }
 
     #[test]

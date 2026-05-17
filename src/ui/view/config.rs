@@ -214,7 +214,9 @@ impl<'a> ConfigView<'a> {
         match field {
             ConfigField::ActiveProvider => {
                 let value = self.config.default_provider.to_string();
-                format!("{}Active Provider: {}", prefix, value)
+                let configured = self.config.configured_providers();
+                let arrows = if configured.len() > 1 { " ← →" } else { "" };
+                format!("{}Active Provider: {}{}", prefix, value, arrows)
             }
             ConfigField::StepFunApiKey => {
                 let value = match self.config.stepfun.as_ref() {
