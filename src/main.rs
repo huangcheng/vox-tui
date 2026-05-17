@@ -1,7 +1,6 @@
 mod config;
 mod input;
 pub mod minimax;
-pub mod minimax_api;
 pub mod provider;
 mod stepfun;
 pub mod ui;
@@ -19,62 +18,53 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ui::{AudioView, ChatView, ConfigView, ImageView, Layout, View, AppTheme, AppLayout, compute_layout, widget::ChatMessage};
+use ui::{AudioView, ChatView, ConfigView, ImageView, Layout, View, AppTheme, AppLayout, compute_layout, widget::{ChatMessage, MessageRole}};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
 use crate::cli::Cli;
 use crate::command::SlashCommand;
-use crate::config::{Config, Provider as ConfigProvider};
-use crate::provider::create_provider;
+use crate::config::{Config, Provider as ConfigProvider, ConfigEditor};
+use crate::input::InputMode;
+use crate::provider::{WorkResult, create_provider};
 
 pub struct AppState {
     pub running: bool,
     pub status: String,
     pub current_view: View,
-    pub work_count: u32,
+    pub input_mode: InputMode,
     pub input: input::TextInputState,
-    pub input_focused: bool,
     pub messages: Vec<ChatMessage>,
-    pub is_streaming: bool,
     pub scroll_offset: u16,
     pub config: Config,
-    work_tx: tokio::sync::mpsc::Sender<()>,
-    work_rx: tokio::sync::mpsc::Receiver<()>,
-    pub config_selected: usize,
-    pub config_editing: bool,
-    pub config_edit_buffer: String,
-    show_welcome: bool,
+    pub config_editor: ConfigEditor,
+    work_rx: tokio::sync::mpsc::Receiver<WorkResult>,
+    work_tx: tokio::sync::mpsc::Sender<WorkResult>,
 }
 
 impl AppState {
     pub fn new() -> Self {
-        let (work_tx, work_rx) = tokio::sync::mpsc::channel(1);
+        let (work_tx, work_rx) = tokio::sync::mpsc::channel(16);
         let config = Config::load().unwrap_or_default();
 
         Self {
             running: true,
             status: "vox-tui — 1-4: switch view, Tab/⇧Tab: next/prev, Enter: send, q/Ctrl+C: quit".into(),
             current_view: View::default(),
-            work_count: 0,
+            input_mode: InputMode::Normal,
             input: input::TextInputState::new(),
-            input_focused: false,
             messages: Vec::new(),
-            is_streaming: false,
             scroll_offset: 0,
             config,
-            work_tx,
+            config_editor: ConfigEditor::new(),
             work_rx,
-            config_selected: 0,
-            config_editing: false,
-            config_edit_buffer: String::new(),
-            show_welcome: true,
+            work_tx,
         }
     }
 
     pub fn new_for_tui() -> Self {
         let mut state = Self::new();
-        if state.show_welcome && state.config.stepfun.is_none() && state.config.minimax.is_none() {
+        if state.config.stepfun.is_none() && state.config.minimax.is_none() {
             state.messages.push(ChatMessage::system(
                 "Welcome to vox! No providers configured yet.\n\n\
                  Press 4 or Tab to switch to Config view and set up your API keys.\n\
@@ -88,21 +78,68 @@ impl AppState {
     }
 
     pub fn tick(&mut self) {
-        while let Ok(()) = self.work_rx.try_recv() {
-            if self.is_streaming {
-                self.finish_stream();
+        while let Ok(result) = self.work_rx.try_recv() {
+            match result {
+                WorkResult::ChatResponse { content, model } => {
+                    self.messages.push(ChatMessage::assistant(&content));
+                    self.input_mode = InputMode::Normal;
+                    self.status = format!("Ready — {}", model);
+                }
+                WorkResult::StreamChunk(chunk) => {
+                    if let Some(last) = self.messages.last_mut() {
+                        last.content.push_str(&chunk);
+                    }
+                }
+                WorkResult::StreamDone => {
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Ready".into();
+                }
+                WorkResult::Error(msg) => {
+                    self.messages.push(ChatMessage::system(format!("Error: {}", msg)));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Error — press any key".into();
+                }
+                WorkResult::ImageGenerated { urls } => {
+                    self.messages.push(ChatMessage::assistant(
+                        format!("Generated {} image(s):\n{}", urls.len(), urls.join("\n"))
+                    ));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Image generated".into();
+                }
+                WorkResult::SpeechGenerated { .. } => {
+                    self.messages.push(ChatMessage::assistant("Speech generated successfully."));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Speech generated".into();
+                }
+                WorkResult::VideoGenerated { task_id, status, video_url } => {
+                    let msg = format!("Video task {} — status: {}", task_id, status);
+                    self.messages.push(ChatMessage::assistant(
+                        if let Some(url) = video_url { format!("{}\nURL: {}", msg, url) } else { msg }
+                    ));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Video task submitted".into();
+                }
+                WorkResult::MusicGenerated { .. } => {
+                    self.messages.push(ChatMessage::assistant("Music generated successfully."));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Music generated".into();
+                }
+                WorkResult::SearchResults { results } => {
+                    let text = results.iter()
+                        .map(|r| format!("{}\n  {}", r.title, r.url))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    self.messages.push(ChatMessage::assistant(text));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Search complete".into();
+                }
+                WorkResult::VisionResult { description } => {
+                    self.messages.push(ChatMessage::assistant(&description));
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Vision complete".into();
+                }
             }
-            self.work_count += 1;
-            self.status = format!("vox-tui — {count} async tasks completed", count = self.work_count);
         }
-    }
-
-    pub fn trigger_work(&self) {
-        let tx = self.work_tx.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            let _ = tx.send(()).await;
-        });
     }
 
     pub fn next_view(&mut self) {
@@ -123,320 +160,109 @@ impl AppState {
         }
     }
 
-    fn config_fields(&self) -> Vec<crate::ui::ConfigField> {
-        crate::ui::ConfigField::build_fields(&self.config)
-    }
-
     pub fn handle_input(&mut self, action: input::InputAction) {
-        if self.is_streaming {
-            match action {
-                input::InputAction::Escape => {
-                    self.is_streaming = false;
-                    self.status = "Streaming cancelled".into();
-                }
-                input::InputAction::Quit => self.running = false,
-                _ => {}
-            }
-            return;
-        }
-
-        if self.input_focused {
-            match action {
-                input::InputAction::Char(c) => self.input.insert_char(c),
-                input::InputAction::Backspace => self.input.backspace(),
-                input::InputAction::Delete => self.input.delete(),
-                input::InputAction::Home => self.input.move_home(),
-                input::InputAction::End => self.input.move_end(),
-                input::InputAction::Left => self.input.move_left(),
-                input::InputAction::Right => self.input.move_right(),
-                input::InputAction::Submit if !self.input.content.is_empty() => {
-                    self.send_message();
-                }
-                input::InputAction::Escape => {
-                    self.input.clear();
-                    self.input_focused = false;
-                }
-                input::InputAction::ScrollUp => {
-                    self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                }
-                input::InputAction::ScrollDown => {
-                    self.scroll_offset = self.scroll_offset.saturating_add(1);
-                }
-                input::InputAction::NextView => {
-                    self.input_focused = false;
-                    self.next_view();
-                }
-                _ => {}
-            }
-        } else {
-            match action {
-                input::InputAction::Quit => self.running = false,
-                input::InputAction::NextView => self.next_view(),
-                input::InputAction::PrevView => self.prev_view(),
-                input::InputAction::SwitchView(idx) => self.switch_view(idx),
-                input::InputAction::Submit if self.current_view != View::Config => {
-                    self.input_focused = true;
-                }
-                input::InputAction::Escape => {
-                    self.input.clear();
-                    self.input_focused = false;
-                }
-                input::InputAction::ScrollUp | input::InputAction::ScrollDown
-                    if self.current_view == View::Chat =>
-                {
-                    match action {
-                        input::InputAction::ScrollUp => {
-                            self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                        }
-                        input::InputAction::ScrollDown => {
-                            self.scroll_offset = self.scroll_offset.saturating_add(1);
-                        }
-                        _ => {}
+        match self.input_mode {
+            InputMode::Streaming => {
+                match action {
+                    input::InputAction::Escape => {
+                        self.input_mode = InputMode::Normal;
+                        self.status = "Streaming cancelled".into();
                     }
-                }
-                _ => {}
-            }
-        }
-
-        if self.current_view == View::Config && !self.input_focused {
-            match action {
-                input::InputAction::Char(c) if self.config_editing => {
-                    self.config_edit_buffer.push(c);
-                }
-                input::InputAction::Backspace if self.config_editing => {
-                    self.config_edit_buffer.pop();
-                }
-                input::InputAction::Submit => {
-                    if self.config_editing {
-                        self.apply_config_edit();
-                        self.config_editing = false;
-                    } else {
-                        self.start_config_edit();
-                    }
-                }
-                input::InputAction::Escape if self.config_editing => {
-                    self.config_editing = false;
-                    self.config_edit_buffer.clear();
-                }
-                input::InputAction::ScrollUp if !self.config_editing => {
-                    self.config_selected = self.config_selected.saturating_sub(1);
-                }
-                input::InputAction::ScrollDown if !self.config_editing => {
-                    self.config_selected = (self.config_selected + 1).min(self.config_fields().len().saturating_sub(1));
-                }
-                input::InputAction::Left if !self.config_editing => {
-                    self.cycle_config_model(-1);
-                }
-                input::InputAction::Right if !self.config_editing => {
-                    self.cycle_config_model(1);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn start_config_edit(&mut self) {
-        use crate::ui::ConfigField;
-        self.config_editing = true;
-        let fields = self.config_fields();
-        let field = fields.get(self.config_selected).copied().unwrap_or(ConfigField::ActiveProvider);
-        self.config_edit_buffer = match field {
-            ConfigField::ActiveProvider => self.config.default_provider.to_string(),
-            ConfigField::StepFunApiKey => {
-                self.config.stepfun.as_ref().map(|s| s.api_key.clone()).unwrap_or_default()
-            }
-            ConfigField::MiniMaxApiKey => {
-                self.config.minimax.as_ref().map(|m| m.api_key.clone()).unwrap_or_default()
-            }
-            _ => String::new(),
-        };
-    }
-
-    fn apply_config_edit(&mut self) {
-        use crate::ui::ConfigField;
-        use crate::config::{StepFunConfig, MiniMaxConfig, ProviderModels};
-
-        let fields = self.config_fields();
-        let field = fields.get(self.config_selected).copied().unwrap_or(ConfigField::ActiveProvider);
-
-        match field {
-            ConfigField::ActiveProvider => {
-                match self.config_edit_buffer.to_lowercase().as_str() {
-                    "stepfun" => self.config.default_provider = ConfigProvider::StepFun,
-                    "minimax" => self.config.default_provider = ConfigProvider::MiniMax,
+                    input::InputAction::Quit => self.running = false,
                     _ => {}
                 }
             }
-            ConfigField::StepFunApiKey => {
-                if self.config_edit_buffer.is_empty() {
-                    self.config.stepfun = None;
-                } else {
-                    let cfg = self.config.stepfun.get_or_insert_with(|| StepFunConfig {
-                        api_key: String::new(),
-                        base_url: None,
-                        model: None,
-                        models: ProviderModels::default(),
-                    });
-                    cfg.api_key = self.config_edit_buffer.clone();
+            InputMode::Typing => {
+                match action {
+                    input::InputAction::Char(c) => self.input.insert_char(c),
+                    input::InputAction::Backspace => self.input.backspace(),
+                    input::InputAction::Delete => self.input.delete(),
+                    input::InputAction::Home => self.input.move_home(),
+                    input::InputAction::End => self.input.move_end(),
+                    input::InputAction::Left => self.input.move_left(),
+                    input::InputAction::Right => self.input.move_right(),
+                    input::InputAction::Submit if !self.input.content.is_empty() => {
+                        self.send_message();
+                    }
+                    input::InputAction::Escape => {
+                        self.input.clear();
+                        self.input_mode = InputMode::Normal;
+                    }
+                    input::InputAction::ScrollUp => {
+                        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+                    }
+                    input::InputAction::ScrollDown => {
+                        self.scroll_offset = self.scroll_offset.saturating_add(1);
+                    }
+                    input::InputAction::NextView => {
+                        self.input_mode = InputMode::Normal;
+                        self.next_view();
+                    }
+                    _ => {}
                 }
             }
-            ConfigField::MiniMaxApiKey => {
-                if self.config_edit_buffer.is_empty() {
-                    self.config.minimax = None;
-                } else {
-                    let cfg = self.config.minimax.get_or_insert_with(|| MiniMaxConfig {
-                        api_key: String::new(),
-                        group_id: None,
-                        base_url: None,
-                        model: None,
-                        models: ProviderModels::default(),
-                    });
-                    cfg.api_key = self.config_edit_buffer.clone();
+            InputMode::ConfigEditing => {
+                match action {
+                    input::InputAction::Char(c) => self.config_editor.type_char(c),
+                    input::InputAction::Backspace => self.config_editor.backspace(),
+                    input::InputAction::Submit => {
+                        if let Err(e) = self.config_editor.apply_edit(&mut self.config) {
+                            self.messages.push(ChatMessage::system(e));
+                        }
+                        self.input_mode = InputMode::ConfigNavigating;
+                    }
+                    input::InputAction::Escape => {
+                        self.config_editor.cancel_edit();
+                        self.input_mode = InputMode::ConfigNavigating;
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
-        }
-
-        let (provider_field, category) = match field {
-            ConfigField::StepFunModelChat => ("stepfun", "chat"),
-            ConfigField::StepFunModelImage => ("stepfun", "image"),
-            ConfigField::StepFunModelSpeech => ("stepfun", "speech"),
-            ConfigField::StepFunModelVideo => ("stepfun", "video"),
-            ConfigField::StepFunModelMusic => ("stepfun", "music"),
-            ConfigField::StepFunModelVision => ("stepfun", "vision"),
-            ConfigField::MiniMaxModelChat => ("minimax", "chat"),
-            ConfigField::MiniMaxModelImage => ("minimax", "image"),
-            ConfigField::MiniMaxModelSpeech => ("minimax", "speech"),
-            ConfigField::MiniMaxModelVideo => ("minimax", "video"),
-            ConfigField::MiniMaxModelMusic => ("minimax", "music"),
-            ConfigField::MiniMaxModelVision => ("minimax", "vision"),
-            _ => return,
-        };
-
-        if !self.config_edit_buffer.is_empty() {
-            let models = match provider_field {
-                "stepfun" => self.config.stepfun.as_mut().map(|s| &mut s.models),
-                "minimax" => self.config.minimax.as_mut().map(|m| &mut m.models),
-                _ => None,
-            };
-            if let Some(models) = models
-                && let Some(cat_models) = models.get_mut(category)
-            {
-                cat_models.default = Some(self.config_edit_buffer.clone());
-            }
-        }
-
-        let new_fields = self.config_fields();
-        if self.config_selected >= new_fields.len() {
-            self.config_selected = new_fields.len().saturating_sub(1);
-        }
-
-        if let Err(e) = self.config.save() {
-            self.messages.push(ChatMessage::system(format!("Failed to save config: {}", e)));
-        }
-    }
-
-    fn cycle_config_model(&mut self, direction: i32) {
-        use crate::config::Provider;
-
-        let fields = self.config_fields();
-        let field = match fields.get(self.config_selected).copied() {
-            Some(f) => f,
-            None => return,
-        };
-
-        let category = match field.category() {
-            Some(c) => c,
-            None => return,
-        };
-        let provider = match field.provider() {
-            Some(p) => p,
-            None => return,
-        };
-
-        let models = match provider {
-            Provider::StepFun => {
-                self.config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .cloned()
-                    .unwrap_or_default()
-            }
-            Provider::MiniMax => {
-                self.config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .cloned()
-                    .unwrap_or_default()
-            }
-        };
-
-        if models.is_empty() {
-            return;
-        }
-
-        let current = match provider {
-            Provider::StepFun => {
-                self.config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.default.clone())
-                    .or_else(|| self.config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
-                    .unwrap_or_default()
-            }
-            Provider::MiniMax => {
-                self.config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.default.clone())
-                    .or_else(|| self.config.minimax.as_ref().and_then(|mm| mm.model.clone()))
-                    .unwrap_or_default()
-            }
-        };
-
-        let current_idx = models.iter().position(|m| m == &current).unwrap_or(0);
-        let new_idx = if direction > 0 {
-            (current_idx + 1) % models.len()
-        } else {
-            current_idx.saturating_sub(1).max(models.len() - 1)
-        };
-        let new_model = models[new_idx].clone();
-
-        match provider {
-            Provider::StepFun => {
-                if let Some(ref mut sf) = self.config.stepfun {
-                    let category_model = match category {
-                        "chat" => sf.models.chat.as_mut(),
-                        "image" => sf.models.image.as_mut(),
-                        "speech" => sf.models.speech.as_mut(),
-                        "video" => sf.models.video.as_mut(),
-                        "music" => sf.models.music.as_mut(),
-                        "vision" => sf.models.vision.as_mut(),
-                        _ => None,
-                    };
-                    if let Some(cm) = category_model {
-                        cm.default = Some(new_model.clone());
+            InputMode::ConfigNavigating => {
+                match action {
+                    input::InputAction::Quit => self.running = false,
+                    input::InputAction::NextView => self.next_view(),
+                    input::InputAction::PrevView => self.prev_view(),
+                    input::InputAction::SwitchView(idx) => self.switch_view(idx),
+                    input::InputAction::ScrollUp => self.config_editor.navigate_up(&self.config),
+                    input::InputAction::ScrollDown => self.config_editor.navigate_down(&self.config),
+                    input::InputAction::Left => self.config_editor.cycle_model(&mut self.config, -1),
+                    input::InputAction::Right => self.config_editor.cycle_model(&mut self.config, 1),
+                    input::InputAction::Submit => {
+                        self.config_editor.start_edit(&self.config);
+                        self.input_mode = InputMode::ConfigEditing;
                     }
-                    if category == "chat" {
-                        sf.model = Some(new_model);
+                    input::InputAction::Escape => {
+                        self.input_mode = InputMode::Normal;
+                        self.current_view = View::Chat;
                     }
+                    _ => {}
                 }
             }
-            Provider::MiniMax => {
-                if let Some(ref mut mm) = self.config.minimax {
-                    let category_model = match category {
-                        "chat" => mm.models.chat.as_mut(),
-                        "image" => mm.models.image.as_mut(),
-                        "speech" => mm.models.speech.as_mut(),
-                        "video" => mm.models.video.as_mut(),
-                        "music" => mm.models.music.as_mut(),
-                        "vision" => mm.models.vision.as_mut(),
-                        _ => None,
-                    };
-                    if let Some(cm) = category_model {
-                        cm.default = Some(new_model.clone());
+            InputMode::Normal => {
+                match action {
+                    input::InputAction::Quit => self.running = false,
+                    input::InputAction::NextView => self.next_view(),
+                    input::InputAction::PrevView => self.prev_view(),
+                    input::InputAction::SwitchView(idx) => self.switch_view(idx),
+                    input::InputAction::Submit => {
+                        if self.current_view == View::Config {
+                            self.config_editor.start_edit(&self.config);
+                            self.input_mode = InputMode::ConfigEditing;
+                        } else {
+                            self.input_mode = InputMode::Typing;
+                        }
                     }
-                    if category == "chat" {
-                        mm.model = Some(new_model);
+                    input::InputAction::Escape => {
+                        self.input.clear();
                     }
+                    input::InputAction::ScrollUp if self.current_view == View::Chat => {
+                        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+                    }
+                    input::InputAction::ScrollDown if self.current_view == View::Chat => {
+                        self.scroll_offset = self.scroll_offset.saturating_add(1);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -452,17 +278,34 @@ impl AppState {
         }
 
         self.messages.push(ChatMessage::user(&content));
-        self.input_focused = false;
-        self.is_streaming = true;
+        self.input_mode = InputMode::Streaming;
         self.status = "Waiting for response...".into();
         self.scroll_offset = u16::MAX;
 
+        // Build provider messages from history
+        let provider_messages: Vec<crate::provider::Message> = self.messages.iter().map(|m| {
+            match m.role {
+                MessageRole::User => crate::provider::Message::user(&m.content),
+                MessageRole::Assistant => crate::provider::Message::assistant(&m.content),
+                MessageRole::System => crate::provider::Message::system(&m.content),
+            }
+        }).collect();
+
+        let config = self.config.clone();
         let tx = self.work_tx.clone();
 
         tokio::spawn(async move {
-            // Simulated response — real API integration will replace this
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let _ = tx.send(()).await;
+            let result = match create_provider(&config) {
+                Ok(provider) => match provider.chat(&provider_messages).await {
+                    Ok(response) => WorkResult::ChatResponse {
+                        content: response.content,
+                        model: response.model,
+                    },
+                    Err(e) => WorkResult::Error(e.to_string()),
+                },
+                Err(e) => WorkResult::Error(e.to_string()),
+            };
+            let _ = tx.send(result).await;
         });
     }
 
@@ -472,13 +315,8 @@ impl AppState {
         }
     }
 
-    pub fn finish_stream(&mut self) {
-        self.is_streaming = false;
-        self.status = "Ready".into();
-    }
-
     pub fn handle_slash_command(&mut self, cmd: SlashCommand) {
-        self.input_focused = false;
+        self.input_mode = InputMode::Normal;
 
         match cmd {
             SlashCommand::Provider { name } => {
@@ -583,7 +421,7 @@ impl AppState {
                 )));
             }
         }
-        // Don't set is_streaming for slash commands
+        // Don't set input_mode to Streaming for slash commands
     }
 }
 
@@ -602,10 +440,10 @@ mod tests {
         let app = AppState::new();
         assert!(app.running);
         assert_eq!(app.current_view, View::Chat);
-        assert_eq!(app.work_count, 0);
+        assert_eq!(app.input_mode, InputMode::Normal);
         assert!(app.messages.is_empty());
-        assert!(!app.is_streaming);
-        assert!(!app.input_focused);
+        assert_ne!(app.input_mode, InputMode::Streaming);
+        assert_ne!(app.input_mode, InputMode::Typing);
     }
 
     #[test]
@@ -667,25 +505,25 @@ mod tests {
     #[test]
     fn test_app_state_handle_input_focus() {
         let mut app = AppState::new();
-        assert!(!app.input_focused);
+        assert_ne!(app.input_mode, InputMode::Typing);
         app.handle_input(input::InputAction::Submit);
-        assert!(app.input_focused);
+        assert_eq!(app.input_mode, InputMode::Typing);
     }
 
     #[test]
     fn test_app_state_handle_input_escape() {
         let mut app = AppState::new();
         app.input.insert_char('h');
-        app.input_focused = true;
+        app.input_mode = InputMode::Typing;
         app.handle_input(input::InputAction::Escape);
-        assert!(!app.input_focused);
+        assert_ne!(app.input_mode, InputMode::Typing);
         assert!(app.input.content.is_empty());
     }
 
     #[test]
     fn test_app_state_handle_input_typing() {
         let mut app = AppState::new();
-        app.input_focused = true;
+        app.input_mode = InputMode::Typing;
         app.handle_input(input::InputAction::Char('h'));
         app.handle_input(input::InputAction::Char('i'));
         assert_eq!(app.input.content, "hi");
@@ -694,36 +532,37 @@ mod tests {
     #[tokio::test]
     async fn test_app_state_handle_input_submit_message() {
         let mut app = AppState::new();
-        app.input_focused = true;
+        app.input_mode = InputMode::Typing;
         app.handle_input(input::InputAction::Char('h'));
         app.handle_input(input::InputAction::Char('i'));
         app.handle_input(input::InputAction::Submit);
-        assert!(!app.input_focused);
+        assert_ne!(app.input_mode, InputMode::Typing);
         assert_eq!(app.messages.len(), 1);
         assert_eq!(app.messages[0].content, "hi");
-        assert!(app.is_streaming);
+        assert_eq!(app.input_mode, InputMode::Streaming);
     }
 
     #[test]
     fn test_app_state_tick() {
         let mut app = AppState::new();
         app.tick();
-        assert_eq!(app.work_count, 0);
+        // No assertions needed - just verify it doesn't panic
     }
 
     #[test]
-    fn test_app_state_tick_finishes_stream() {
+    fn test_app_state_tick_streaming_mode() {
         let mut app = AppState::new();
-        app.is_streaming = true;
+        app.input_mode = InputMode::Streaming;
         app.tick();
-        assert!(app.is_streaming);
+        // Without receiving a WorkResult, mode stays Streaming
+        assert_eq!(app.input_mode, InputMode::Streaming);
     }
 
     #[test]
     fn test_app_state_scroll() {
         let mut app = AppState::new();
         assert_eq!(app.scroll_offset, 0);
-        app.input_focused = true;
+        app.input_mode = InputMode::Typing;
         app.handle_input(input::InputAction::ScrollDown);
         assert_eq!(app.scroll_offset, 1);
         app.handle_input(input::InputAction::ScrollUp);
@@ -736,16 +575,6 @@ mod tests {
         app.messages.push(ChatMessage::assistant("Hello"));
         app.append_stream(" World");
         assert_eq!(app.messages[0].content, "Hello World");
-    }
-
-    #[test]
-    fn test_app_state_finish_stream() {
-        let mut app = AppState::new();
-        app.is_streaming = true;
-        app.status = "Streaming...".into();
-        app.finish_stream();
-        assert!(!app.is_streaming);
-        assert_eq!(app.status, "Ready");
     }
 
     // Slash command tests
@@ -773,7 +602,7 @@ mod tests {
 
         app.handle_slash_command(SlashCommand::Provider { name: "minimax".to_string() });
         assert_eq!(app.config.default_provider, ConfigProvider::MiniMax);
-        assert!(!app.is_streaming);
+        assert_ne!(app.input_mode, InputMode::Streaming);
         assert!(!app.messages.is_empty());
         let last_msg = app.messages.last().unwrap();
         assert!(last_msg.content.contains("MiniMax"));
@@ -836,15 +665,15 @@ mod tests {
     #[test]
     fn test_send_message_triggers_slash_command_check() {
         let mut app = AppState::new();
-        app.input_focused = true;
+        app.input_mode = InputMode::Typing;
         app.input.insert_char('/');
         app.input.insert_char('h');
         app.input.insert_char('e');
         app.input.insert_char('l');
         app.input.insert_char('p');
         app.handle_input(input::InputAction::Submit);
-        // Should not set is_streaming since it's a slash command
-        assert!(!app.is_streaming);
+        // Should not set Streaming since it's a slash command
+        assert_ne!(app.input_mode, InputMode::Streaming);
         assert!(!app.messages.is_empty());
         let last_msg = app.messages.last().unwrap();
         assert!(last_msg.content.contains("Available slash commands"));
@@ -856,87 +685,89 @@ mod tests {
     fn test_config_navigation_scroll_down() {
         let mut app = AppState::new();
         app.switch_view(3); // Config view
-        assert_eq!(app.config_selected, 0);
+        app.input_mode = InputMode::ConfigNavigating;
+        assert_eq!(app.config_editor.selected, 0);
         app.handle_input(input::InputAction::ScrollDown);
-        assert_eq!(app.config_selected, 1);
+        assert_eq!(app.config_editor.selected, 1);
         app.handle_input(input::InputAction::ScrollDown);
-        assert_eq!(app.config_selected, 2);
+        assert_eq!(app.config_editor.selected, 2);
     }
 
     #[test]
     fn test_config_navigation_scroll_up() {
         let mut app = AppState::new();
         app.switch_view(3); // Config view
-        app.config_selected = 2;
+        app.input_mode = InputMode::ConfigNavigating;
+        app.config_editor.selected = 2;
         app.handle_input(input::InputAction::ScrollUp);
-        assert_eq!(app.config_selected, 1);
+        assert_eq!(app.config_editor.selected, 1);
         app.handle_input(input::InputAction::ScrollUp);
-        assert_eq!(app.config_selected, 0);
+        assert_eq!(app.config_editor.selected, 0);
         // Should not go below 0
         app.handle_input(input::InputAction::ScrollUp);
-        assert_eq!(app.config_selected, 0);
+        assert_eq!(app.config_editor.selected, 0);
     }
 
     #[test]
     fn test_config_edit_start() {
         let mut app = AppState::new();
         app.switch_view(3);
-        app.input_focused = false;
-        assert!(!app.config_editing);
+        app.input_mode = InputMode::ConfigNavigating;
+        assert!(!app.config_editor.editing);
         app.handle_input(input::InputAction::Submit);
-        assert!(app.config_editing);
-        assert!(!app.config_edit_buffer.is_empty());
+        assert!(app.config_editor.editing);
+        assert!(!app.config_editor.edit_buffer.is_empty());
     }
 
     #[test]
     fn test_config_edit_cancel() {
         let mut app = AppState::new();
         app.switch_view(3);
-        app.input_focused = false;
+        app.input_mode = InputMode::ConfigNavigating;
         app.handle_input(input::InputAction::Submit);
-        app.config_edit_buffer.push('x');
+        app.config_editor.edit_buffer.push('x');
         app.handle_input(input::InputAction::Escape);
-        assert!(!app.config_editing);
-        assert!(app.config_edit_buffer.is_empty());
+        assert!(!app.config_editor.editing);
+        assert!(app.config_editor.edit_buffer.is_empty());
     }
 
     #[test]
     fn test_config_edit_type_char() {
         let mut app = AppState::new();
         app.switch_view(3);
-        app.input_focused = false;
+        app.input_mode = InputMode::ConfigNavigating;
         app.handle_input(input::InputAction::Submit);
-        let initial_len = app.config_edit_buffer.len();
+        let initial_len = app.config_editor.edit_buffer.len();
         app.handle_input(input::InputAction::Char('n'));
         app.handle_input(input::InputAction::Char('e'));
         app.handle_input(input::InputAction::Char('w'));
-        assert_eq!(app.config_edit_buffer.len(), initial_len + 3);
-        assert!(app.config_edit_buffer.ends_with("new"));
+        assert_eq!(app.config_editor.edit_buffer.len(), initial_len + 3);
+        assert!(app.config_editor.edit_buffer.ends_with("new"));
     }
 
     #[test]
     fn test_config_edit_backspace() {
         let mut app = AppState::new();
         app.switch_view(3);
-        app.input_focused = false;
+        app.input_mode = InputMode::ConfigNavigating;
         app.handle_input(input::InputAction::Submit);
-        app.config_edit_buffer.push('x');
-        app.config_edit_buffer.push('y');
-        let len_before = app.config_edit_buffer.len();
+        app.config_editor.edit_buffer.push('x');
+        app.config_editor.edit_buffer.push('y');
+        let len_before = app.config_editor.edit_buffer.len();
         app.handle_input(input::InputAction::Backspace);
-        assert_eq!(app.config_edit_buffer.len(), len_before - 1);
+        assert_eq!(app.config_editor.edit_buffer.len(), len_before - 1);
     }
 
     #[test]
     fn test_config_navigation_blocked_while_editing() {
         let mut app = AppState::new();
         app.switch_view(3);
-        app.input_focused = false;
-        app.config_selected = 0;
+        app.input_mode = InputMode::ConfigNavigating;
+        app.config_editor.selected = 0;
         app.handle_input(input::InputAction::Submit);
         app.handle_input(input::InputAction::ScrollDown);
-        assert_eq!(app.config_selected, 0);
-        assert!(app.config_editing);
+        assert_eq!(app.config_editor.selected, 0);
+        assert!(app.config_editor.editing);
     }
 }
 
@@ -945,13 +776,13 @@ async fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     if cli.command.is_some() {
-        run_cli(cli)
+        run_cli(cli).await
     } else {
         run_tui().await
     }
 }
 
-fn run_cli(cli: Cli) -> io::Result<()> {
+async fn run_cli(cli: Cli) -> io::Result<()> {
     // Load config
     let mut config = Config::load().unwrap_or_default();
 
@@ -1029,7 +860,7 @@ fn run_cli(cli: Cli) -> io::Result<()> {
 
     match cli.command {
         Some(cli::Commands::Image { prompt, aspect_ratio, output, n }) => {
-            match provider.image_generate(&prompt, n, &aspect_ratio) {
+            match provider.image_generate(&prompt, n, &aspect_ratio).await {
                 Ok(resp) => {
                     if let Some(output_path) = output {
                         // Download and save images
@@ -1066,7 +897,7 @@ fn run_cli(cli: Cli) -> io::Result<()> {
         }
         Some(cli::Commands::Speech { text, out, voice, speed, format }) => {
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            match provider.speech_synthesize(&text, &voice, speed, &format) {
+            match provider.speech_synthesize(&text, &voice, speed, &format).await {
                 Ok(resp) => {
                     if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
                         eprintln!("Failed to write audio file: {e}");
@@ -1080,7 +911,7 @@ fn run_cli(cli: Cli) -> io::Result<()> {
             }
         }
         Some(cli::Commands::Video { prompt, duration, resolution }) => {
-            match provider.video_generate(&prompt, duration, &resolution) {
+            match provider.video_generate(&prompt, duration, &resolution).await {
                 Ok(resp) => {
                     println!("Task ID: {}", resp.task_id);
                     println!("Status: {}", resp.status);
@@ -1095,7 +926,7 @@ fn run_cli(cli: Cli) -> io::Result<()> {
         }
         Some(cli::Commands::Music { prompt, lyrics, instrumental, out }) => {
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            match provider.music_generate(&prompt, lyrics.as_deref(), instrumental) {
+            match provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await {
                 Ok(resp) => {
                     if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
                         eprintln!("Failed to write audio file: {e}");
@@ -1109,7 +940,7 @@ fn run_cli(cli: Cli) -> io::Result<()> {
             }
         }
         Some(cli::Commands::Search { query, count }) => {
-            match provider.search(&query, count) {
+            match provider.search(&query, count).await {
                 Ok(resp) => {
                     for result in resp.results {
                         println!("{}\n  {}\n  {}\n", result.title, result.url, result.snippet);
@@ -1121,7 +952,7 @@ fn run_cli(cli: Cli) -> io::Result<()> {
             }
         }
         Some(cli::Commands::Vision { file, prompt }) => {
-            match provider.vision(&file, prompt.as_deref()) {
+            match provider.vision(&file, prompt.as_deref()).await {
                 Ok(resp) => {
                     println!("{}", resp.description);
                 }
@@ -1183,25 +1014,25 @@ async fn run_app<B: ratatui::backend::Backend>(
             match app.current_view {
                 View::Chat => {
                     let chat_view = ChatView::new(&app.messages, &app.input.content, &theme)
-                        .streaming(app.is_streaming)
+                        .streaming(app.input_mode == InputMode::Streaming)
                         .scroll_offset(app.scroll_offset);
                     chat_view.render(f, main);
                 }
                 View::Image => {
                     let image_view = ImageView::new(&app.input.content, &theme)
-                        .generating(app.is_streaming);
+                        .generating(app.input_mode == InputMode::Streaming);
                     image_view.render(f, main);
                 }
                 View::Audio => {
                     let audio_view = AudioView::new(&app.input.content, &app.status, &theme)
-                        .generating(app.is_streaming);
+                        .generating(app.input_mode == InputMode::Streaming);
                     audio_view.render(f, main);
                 }
                 View::Config => {
                     let config_view = ConfigView::new(&app.config, &theme)
-                        .with_selected(app.config_selected)
-                        .with_editing(app.config_editing)
-                        .with_edit_buffer(&app.config_edit_buffer);
+                        .with_selected(app.config_editor.selected)
+                        .with_editing(app.config_editor.editing)
+                        .with_edit_buffer(&app.config_editor.edit_buffer);
                     config_view.render(f, main);
                 }
             }
@@ -1214,9 +1045,11 @@ async fn run_app<B: ratatui::backend::Backend>(
                 ConfigProvider::StepFun => app.config.stepfun.as_ref().and_then(|s| s.model.as_deref()).unwrap_or("default"),
                 ConfigProvider::MiniMax => app.config.minimax.as_ref().and_then(|m| m.model.as_deref()).unwrap_or("default"),
             };
-            let status_text = format!("vox | {} / {} | Tab: switch view  Enter: send  q: quit", provider_name, model_name);
+            let mode_label = provider_name;
+            let position_label = format!("vox | {}", model_name);
+            let help_label = "Tab: switch view  Enter: send  q: quit";
 
-            Layout::render_status_bar(f, status, &status_text, &theme);
+            Layout::render_status_bar(f, status, mode_label, &position_label, help_label, &theme);
         })?;
 
         let timeout = tick_rate

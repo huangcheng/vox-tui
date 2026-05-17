@@ -1,11 +1,9 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout as RatatuiLayout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
-use crate::ui::widget::{ChatMessage, MessageList};
+use crate::ui::widget::{ChatMessage, InputField, MessageList};
 use crate::ui::AppTheme;
 
 pub struct ChatView<'a> {
@@ -58,19 +56,8 @@ impl<'a> ChatView<'a> {
             "Message"
         };
 
-        let input = Paragraph::new(self.input_text)
-            .block(
-                Block::default()
-                    .title(format!(" {} ", input_label))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(if self.is_streaming {
-                        Color::Yellow
-                    } else {
-                        self.theme.accent
-                    })),
-            )
-            .style(Style::default().fg(Color::White));
-
+        let input = InputField::new(input_label, self.input_text)
+            .focused(!self.is_streaming);
         f.render_widget(input, input_area);
     }
 }

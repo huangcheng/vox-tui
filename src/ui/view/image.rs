@@ -5,6 +5,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::ui::widget::{InputField, Spinner};
 use crate::ui::AppTheme;
 
 pub struct ImageView<'a> {
@@ -46,36 +47,36 @@ impl<'a> ImageView<'a> {
         let preview_area = chunks[0];
         let input_area = chunks[1];
 
-        let preview = if self.is_generating {
-            Paragraph::new("Generating image...")
-                .style(Style::default().fg(Color::Yellow))
-                .block(
-                    Block::default()
-                        .title(" Preview ")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Yellow)),
-                )
+        if self.is_generating {
+            let block = Block::default()
+                .title(" Preview ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+            let inner = block.inner(preview_area);
+            f.render_widget(block, preview_area);
+            let spinner = Spinner::new().label("Generating image...");
+            f.render_widget(spinner, inner);
         } else if let Some(text) = self.preview_text {
-            Paragraph::new(text)
+            let preview = Paragraph::new(text)
                 .style(Style::default().fg(Color::Green))
                 .block(
                     Block::default()
                         .title(" Preview ")
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::Green)),
-                )
+                );
+            f.render_widget(preview, preview_area);
         } else {
-            Paragraph::new("Image generation preview will appear here.\n\nEnter a prompt below to generate an image.")
+            let preview = Paragraph::new("Image generation preview will appear here.\n\nEnter a prompt below to generate an image.")
                 .style(Style::default().fg(Color::DarkGray))
                 .block(
                     Block::default()
                         .title(" Preview ")
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(Color::DarkGray)),
-                )
-        };
-
-        f.render_widget(preview, preview_area);
+                );
+            f.render_widget(preview, preview_area);
+        }
 
         let input_label = if self.is_generating {
             "▌ Generating..."
@@ -83,19 +84,8 @@ impl<'a> ImageView<'a> {
             "Prompt"
         };
 
-        let input = Paragraph::new(self.prompt)
-            .block(
-                Block::default()
-                    .title(format!(" {} ", input_label))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(if self.is_generating {
-                        Color::Yellow
-                    } else {
-                        self.theme.accent
-                    })),
-            )
-            .style(Style::default().fg(Color::White));
-
+        let input = InputField::new(input_label, self.prompt)
+            .focused(!self.is_generating);
         f.render_widget(input, input_area);
     }
 }

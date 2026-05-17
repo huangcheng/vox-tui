@@ -6,6 +6,8 @@ use ratatui::{
     Frame,
 };
 
+use crate::ui::widget::StatusBar;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum View {
     #[default]
@@ -106,13 +108,13 @@ fn parse_color(name: &str) -> Option<Color> {
 pub struct Layout;
 
 impl Layout {
-    pub fn render(f: &mut Frame, current_view: View, status_text: &str, theme: &AppTheme) {
+    pub fn render(f: &mut Frame, current_view: View, mode: &str, position: &str, help: &str, theme: &AppTheme) {
         let area = f.area();
         let layout = compute_layout(area);
 
         Self::render_sidebar(f, layout.sidebar, current_view, theme);
         Self::render_main_placeholder(f, layout.main, current_view);
-        Self::render_status_bar(f, layout.status, status_text, theme);
+        Self::render_status_bar(f, layout.status, mode, position, help, theme);
     }
 
     pub fn render_sidebar(f: &mut Frame, area: Rect, current_view: View, theme: &AppTheme) {
@@ -161,11 +163,8 @@ impl Layout {
         f.render_widget(placeholder, area);
     }
 
-    pub fn render_status_bar(f: &mut Frame, area: Rect, status_text: &str, theme: &AppTheme) {
-        let bg = if theme.is_dark { Color::DarkGray } else { Color::Gray };
-        let status = Paragraph::new(status_text)
-            .style(Style::default().fg(Color::White).bg(bg));
-
+    pub fn render_status_bar(f: &mut Frame, area: Rect, mode: &str, position: &str, help: &str, _theme: &AppTheme) {
+        let status = StatusBar::new(mode, position, help);
         f.render_widget(status, area);
     }
 }

@@ -1,5 +1,20 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+/// Current input mode of the TUI — used for flat (mode, action) dispatch
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMode {
+    /// Default mode: view switching, quit, focus input
+    Normal,
+    /// Text input is focused: typing, backspace, submit
+    Typing,
+    /// Waiting for an async response: only escape/quit work
+    Streaming,
+    /// Config view is active, field is being edited
+    ConfigEditing,
+    /// Config view is active, navigating between fields
+    ConfigNavigating,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputAction {
     // Navigation
@@ -353,5 +368,13 @@ mod tests {
 
         let key = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
         assert_eq!(handle_key_event(key), InputAction::Char('q'));
+    }
+
+    #[test]
+    fn test_input_mode_variants() {
+        // Just verify the enum exists and can be compared
+        assert_ne!(InputMode::Normal, InputMode::Typing);
+        assert_ne!(InputMode::Streaming, InputMode::ConfigEditing);
+        assert_eq!(InputMode::ConfigNavigating, InputMode::ConfigNavigating);
     }
 }

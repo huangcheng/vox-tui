@@ -36,6 +36,9 @@ dirs = "5"
 # SSE
 futures-util = "0.3"
 
+# Async trait
+async-trait = "0.1"
+
 [dev-dependencies]
 mockito = "1"
 insta = "1"

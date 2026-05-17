@@ -5,6 +5,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::ui::widget::Spinner;
 use crate::ui::AppTheme;
 
 pub struct AudioView<'a> {
@@ -61,28 +62,37 @@ impl<'a> AudioView<'a> {
 
         f.render_widget(text_widget, text_area);
 
-        let status_display = if self.is_generating {
-            "🔄 Generating speech..."
-        } else if self.is_playing {
-            "🔊 Playing..."
+        if self.is_generating {
+            let block = Block::default()
+                .title(" Status ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray));
+            let inner = block.inner(status_area);
+            f.render_widget(block, status_area);
+            let spinner = Spinner::new().label("Generating speech...");
+            f.render_widget(spinner, inner);
         } else {
-            self.status_text
-        };
-
-        let status_widget = Paragraph::new(status_display)
-            .style(Style::default().fg(if self.is_generating || self.is_playing {
-                self.theme.accent
+            let status_display = if self.is_playing {
+                "🔊 Playing..."
             } else {
-                Color::DarkGray
-            }))
-            .block(
-                Block::default()
-                    .title(" Status ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            );
+                self.status_text
+            };
 
-        f.render_widget(status_widget, status_area);
+            let status_widget = Paragraph::new(status_display)
+                .style(Style::default().fg(if self.is_playing {
+                    self.theme.accent
+                } else {
+                    Color::DarkGray
+                }))
+                .block(
+                    Block::default()
+                        .title(" Status ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                );
+
+            f.render_widget(status_widget, status_area);
+        }
 
         let input = Paragraph::new("Type text above and press Enter to generate speech")
             .block(
