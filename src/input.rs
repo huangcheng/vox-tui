@@ -1,0 +1,357 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputAction {
+    // Navigation
+    NextView,
+    PrevView,
+    SwitchView(usize),
+    // Text input
+    Char(char),
+    Backspace,
+    Delete,
+    Home,
+    End,
+    Left,
+    Right,
+    // Control
+    Submit,
+    Escape,
+    Quit,
+    // Scroll
+    ScrollUp,
+    ScrollDown,
+    // No-op
+    None,
+}
+
+pub fn handle_key_event(key: KeyEvent) -> InputAction {
+    match key.code {
+        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            InputAction::Quit
+        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            InputAction::Quit
+        }
+        KeyCode::Esc => InputAction::Escape,
+        KeyCode::Enter => InputAction::Submit,
+        KeyCode::Tab => InputAction::NextView,
+        KeyCode::BackTab => InputAction::PrevView,
+        KeyCode::Char('1') => InputAction::SwitchView(0),
+        KeyCode::Char('2') => InputAction::SwitchView(1),
+        KeyCode::Char('3') => InputAction::SwitchView(2),
+        KeyCode::Char('4') => InputAction::SwitchView(3),
+        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            InputAction::Char(c)
+        }
+        KeyCode::Backspace => InputAction::Backspace,
+        KeyCode::Delete => InputAction::Delete,
+        KeyCode::Home => InputAction::Home,
+        KeyCode::End => InputAction::End,
+        KeyCode::Left => InputAction::Left,
+        KeyCode::Right => InputAction::Right,
+        KeyCode::Up => InputAction::ScrollUp,
+        KeyCode::Down => InputAction::ScrollDown,
+        _ => InputAction::None,
+    }
+}
+
+pub struct TextInputState {
+    pub content: String,
+    pub cursor_pos: usize,
+}
+
+impl TextInputState {
+    pub fn new() -> Self {
+        Self {
+            content: String::new(),
+            cursor_pos: 0,
+        }
+    }
+
+    pub fn with_content(content: impl Into<String>) -> Self {
+        let content = content.into();
+        Self {
+            cursor_pos: content.len(),
+            content,
+        }
+    }
+
+    pub fn insert_char(&mut self, c: char) {
+        self.content.insert(self.cursor_pos, c);
+        self.cursor_pos += 1;
+    }
+
+    pub fn backspace(&mut self) {
+        if self.cursor_pos > 0 {
+            self.cursor_pos -= 1;
+            self.content.remove(self.cursor_pos);
+        }
+    }
+
+    pub fn delete(&mut self) {
+        if self.cursor_pos < self.content.len() {
+            self.content.remove(self.cursor_pos);
+        }
+    }
+
+    pub fn move_left(&mut self) {
+        if self.cursor_pos > 0 {
+            self.cursor_pos -= 1;
+        }
+    }
+
+    pub fn move_right(&mut self) {
+        if self.cursor_pos < self.content.len() {
+            self.cursor_pos += 1;
+        }
+    }
+
+    pub fn move_home(&mut self) {
+        self.cursor_pos = 0;
+    }
+
+    pub fn move_end(&mut self) {
+        self.cursor_pos = self.content.len();
+    }
+
+    pub fn submit(&mut self) -> String {
+        let content = std::mem::take(&mut self.content);
+        self.cursor_pos = 0;
+        content
+    }
+
+    pub fn clear(&mut self) {
+        self.content.clear();
+        self.cursor_pos = 0;
+    }
+}
+
+impl Default for TextInputState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_text_input_new() {
+        let input = TextInputState::new();
+        assert!(input.content.is_empty());
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_with_content() {
+        let input = TextInputState::with_content("hello");
+        assert_eq!(input.content, "hello");
+        assert_eq!(input.cursor_pos, 5);
+    }
+
+    #[test]
+    fn test_text_input_insert_char() {
+        let mut input = TextInputState::new();
+        input.insert_char('a');
+        input.insert_char('b');
+        input.insert_char('c');
+        assert_eq!(input.content, "abc");
+        assert_eq!(input.cursor_pos, 3);
+    }
+
+    #[test]
+    fn test_text_input_insert_at_cursor() {
+        let mut input = TextInputState::with_content("abc");
+        input.move_home();
+        input.insert_char('x');
+        assert_eq!(input.content, "xabc");
+        assert_eq!(input.cursor_pos, 1);
+    }
+
+    #[test]
+    fn test_text_input_backspace() {
+        let mut input = TextInputState::with_content("abc");
+        input.backspace();
+        assert_eq!(input.content, "ab");
+        assert_eq!(input.cursor_pos, 2);
+    }
+
+    #[test]
+    fn test_text_input_backspace_at_start() {
+        let mut input = TextInputState::new();
+        input.backspace();
+        assert!(input.content.is_empty());
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_backspace_in_middle() {
+        let mut input = TextInputState::with_content("abcd");
+        input.move_home();
+        input.move_right();
+        input.move_right();
+        input.backspace();
+        assert_eq!(input.content, "acd");
+        assert_eq!(input.cursor_pos, 1);
+    }
+
+    #[test]
+    fn test_text_input_delete() {
+        let mut input = TextInputState::with_content("abc");
+        input.move_home();
+        input.delete();
+        assert_eq!(input.content, "bc");
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_delete_at_end() {
+        let mut input = TextInputState::with_content("abc");
+        input.move_end();
+        input.delete();
+        assert_eq!(input.content, "abc");
+        assert_eq!(input.cursor_pos, 3);
+    }
+
+    #[test]
+    fn test_text_input_move_left() {
+        let mut input = TextInputState::with_content("abc");
+        input.move_end();
+        input.move_left();
+        assert_eq!(input.cursor_pos, 2);
+        input.move_left();
+        assert_eq!(input.cursor_pos, 1);
+        input.move_left();
+        assert_eq!(input.cursor_pos, 0);
+        input.move_left();
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_move_right() {
+        let mut input = TextInputState::new();
+        input.move_right();
+        assert_eq!(input.cursor_pos, 0);
+        input.insert_char('a');
+        input.insert_char('b');
+        input.move_home();
+        input.move_right();
+        assert_eq!(input.cursor_pos, 1);
+    }
+
+    #[test]
+    fn test_text_input_move_home_end() {
+        let mut input = TextInputState::with_content("hello");
+        input.move_home();
+        assert_eq!(input.cursor_pos, 0);
+        input.move_end();
+        assert_eq!(input.cursor_pos, 5);
+    }
+
+    #[test]
+    fn test_text_input_submit() {
+        let mut input = TextInputState::with_content("hello");
+        let submitted = input.submit();
+        assert_eq!(submitted, "hello");
+        assert!(input.content.is_empty());
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_clear() {
+        let mut input = TextInputState::with_content("hello");
+        input.clear();
+        assert!(input.content.is_empty());
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_default() {
+        let input = TextInputState::default();
+        assert!(input.content.is_empty());
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_handle_key_event_quit() {
+        let key = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
+        assert_eq!(handle_key_event(key), InputAction::Quit);
+
+        let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(handle_key_event(key), InputAction::Quit);
+    }
+
+    #[test]
+    fn test_handle_key_event_navigation() {
+        let key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::NextView);
+
+        let key = KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::PrevView);
+
+        let key = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::SwitchView(0));
+
+        let key = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::SwitchView(1));
+    }
+
+    #[test]
+    fn test_handle_key_event_text_input() {
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Char('a'));
+
+        let key = KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Char('z'));
+    }
+
+    #[test]
+    fn test_handle_key_event_control_keys() {
+        let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Escape);
+
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Submit);
+
+        let key = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Backspace);
+
+        let key = KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Delete);
+    }
+
+    #[test]
+    fn test_handle_key_event_scroll() {
+        let key = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::ScrollUp);
+
+        let key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::ScrollDown);
+    }
+
+    #[test]
+    fn test_handle_key_event_cursor_movement() {
+        let key = KeyEvent::new(KeyCode::Home, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Home);
+
+        let key = KeyEvent::new(KeyCode::End, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::End);
+
+        let key = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Left);
+
+        let key = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Right);
+    }
+
+    #[test]
+    fn test_handle_key_event_unknown() {
+        let key = KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::None);
+
+        let key = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert_eq!(handle_key_event(key), InputAction::Char('q'));
+    }
+}

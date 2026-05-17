@@ -1,0 +1,23 @@
+# vox-tui Configuration
+# Copy this file to ~/.config/vox/config.toml (macOS/Linux) or %APPDATA%/vox/config.toml (Windows)
+
+# Active provider: "stepfun" or "minimax"
+provider = "stepfun"
+
+# StepFun Configuration
+[stepfun]
+api_key = "sk-your-api-key-here"
+# base_url = "https://api.stepfun.com/v1"  # Optional custom URL
+# model = "step-1-8k"  # Optional custom model
+
+# MiniMax Configuration
+[minimax]
+api_key = "your-minimax-api-key-here"
+# group_id = "your-group-id"  # Optional
+# base_url = "https://api.minimax.chat/v1"  # Optional custom URL
+# model = "abab6.5s-chat"  # Optional custom model
+
+# Theme Configuration (optional)
+[theme]
+# accent_color = "#00bcd4"  # Custom accent color
+# dark_mode = true  # Force dark mode
