@@ -144,6 +144,7 @@ impl AppState {
 
     pub fn next_view(&mut self) {
         self.current_view = self.current_view.next();
+        self.sync_mode_for_view();
     }
 
     pub fn prev_view(&mut self) {
@@ -151,12 +152,30 @@ impl AppState {
         let idx = views.iter().position(|v| v == &self.current_view).unwrap_or(0);
         let new_idx = if idx == 0 { views.len() - 1 } else { idx - 1 };
         self.current_view = views[new_idx];
+        self.sync_mode_for_view();
     }
 
     pub fn switch_view(&mut self, idx: usize) {
         let views = View::all();
         if idx < views.len() {
             self.current_view = views[idx];
+        }
+        self.sync_mode_for_view();
+    }
+
+    /// Auto-transition input mode when switching views
+    fn sync_mode_for_view(&mut self) {
+        match self.current_view {
+            View::Config => {
+                if self.input_mode == InputMode::Normal || self.input_mode == InputMode::Typing {
+                    self.input_mode = InputMode::ConfigNavigating;
+                }
+            }
+            _ => {
+                if self.input_mode == InputMode::ConfigNavigating || self.input_mode == InputMode::ConfigEditing {
+                    self.input_mode = InputMode::Normal;
+                }
+            }
         }
     }
 
