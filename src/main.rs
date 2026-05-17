@@ -452,6 +452,313 @@ impl Default for AppState {
     }
 }
 
+
+#[tokio::main]
+async fn main() -> io::Result<()> {
+    let cli = Cli::parse();
+
+    if cli.command.is_some() {
+        run_cli(cli).await
+    } else {
+        run_tui().await
+    }
+}
+
+async fn run_cli(cli: Cli) -> io::Result<()> {
+    // Load config
+    let mut config = Config::load().unwrap_or_default();
+
+    // Override config with CLI flags
+    let provider_name = cli.global.provider.to_lowercase();
+    match provider_name.as_str() {
+        "stepfun" => config.default_provider = ConfigProvider::StepFun,
+        "minimax" => config.default_provider = ConfigProvider::MiniMax,
+        _ => {
+            eprintln!("Unknown provider: {}", cli.global.provider);
+            return Ok(());
+        }
+    }
+
+    if let Some(model) = &cli.global.model {
+        match config.default_provider {
+            ConfigProvider::StepFun => {
+                if let Some(ref mut stepfun) = config.stepfun {
+                    stepfun.model = Some(model.clone());
+                }
+            }
+            ConfigProvider::MiniMax => {
+                if let Some(ref mut minimax) = config.minimax {
+                    minimax.model = Some(model.clone());
+                }
+            }
+        }
+    }
+
+    // Override API key if provided
+    if let Some(api_key) = &cli.global.api_key {
+        match config.default_provider {
+            ConfigProvider::StepFun => {
+                if let Some(ref mut stepfun) = config.stepfun {
+                    stepfun.api_key = api_key.clone();
+                }
+            }
+            ConfigProvider::MiniMax => {
+                if let Some(ref mut minimax) = config.minimax {
+                    minimax.api_key = api_key.clone();
+                }
+            }
+        }
+    }
+
+    if let Some(group_id) = &cli.global.group_id
+        && let Some(ref mut minimax) = config.minimax
+    {
+        minimax.group_id = Some(group_id.clone());
+    }
+
+    if let Some(base_url) = &cli.global.base_url {
+        match config.default_provider {
+            ConfigProvider::StepFun => {
+                if let Some(ref mut stepfun) = config.stepfun {
+                    stepfun.base_url = Some(base_url.clone());
+                }
+            }
+            ConfigProvider::MiniMax => {
+                if let Some(ref mut minimax) = config.minimax {
+                    minimax.base_url = Some(base_url.clone());
+                }
+            }
+        }
+    }
+
+    // Create provider
+    let provider = match create_provider(&config) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to create provider: {e}");
+            return Ok(());
+        }
+    };
+
+    match cli.command {
+        Some(cli::Commands::Image { prompt, aspect_ratio, output, n }) => {
+            match provider.image_generate(&prompt, n, &aspect_ratio).await {
+                Ok(resp) => {
+                    if let Some(output_path) = output {
+                        // Download and save images, preserving any parent directory in the path.
+                        for (i, url) in resp.urls.iter().enumerate() {
+                            let path = if resp.urls.len() == 1 {
+                                output_path.clone()
+                            } else {
+                                let p = std::path::Path::new(&output_path);
+                                let parent = p.parent();
+                                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+                                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("png");
+                                let filename = format!("{stem}_{i}.{ext}");
+                                match parent {
+                                    Some(dir) if !dir.as_os_str().is_empty() => {
+                                        dir.join(filename).to_string_lossy().into_owned()
+                                    }
+                                    _ => filename,
+                                }
+                            };
+                            if let Err(e) = download_file(url, &path) {
+                                eprintln!("Failed to download {url}: {e}");
+                            } else {
+                                println!("Saved to {path}");
+                            }
+                        }
+                    } else {
+                        // Print URLs
+                        for url in resp.urls {
+                            println!("{url}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                }
+            }
+        }
+        Some(cli::Commands::Speech { text, out, voice, speed, format }) => {
+            let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
+            match provider.speech_synthesize(&text, &voice, speed, &format).await {
+                Ok(resp) => {
+                    if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
+                        eprintln!("Failed to write audio file: {e}");
+                    } else {
+                        println!("Saved to {output_path}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                }
+            }
+        }
+        Some(cli::Commands::Video { prompt, duration, resolution }) => {
+            match provider.video_generate(&prompt, duration, &resolution).await {
+                Ok(resp) => {
+                    println!("Task ID: {}", resp.task_id);
+                    println!("Status: {}", resp.status);
+                    if let Some(url) = resp.video_url {
+                        println!("Video URL: {url}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                }
+            }
+        }
+        Some(cli::Commands::Music { prompt, lyrics, instrumental, out }) => {
+            let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
+            match provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await {
+                Ok(resp) => {
+                    if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
+                        eprintln!("Failed to write audio file: {e}");
+                    } else {
+                        println!("Saved to {output_path}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                }
+            }
+        }
+        Some(cli::Commands::Search { query, count }) => {
+            match provider.search(&query, count).await {
+                Ok(resp) => {
+                    for result in resp.results {
+                        println!("{}\n  {}\n  {}\n", result.title, result.url, result.snippet);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                }
+            }
+        }
+        Some(cli::Commands::Vision { file, prompt }) => {
+            match provider.vision(&file, prompt.as_deref()).await {
+                Ok(resp) => {
+                    println!("{}", resp.description);
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                }
+            }
+        }
+        None => {
+            // Should not happen, but run TUI just in case
+            // This is handled at the call site
+        }
+    }
+
+    Ok(())
+}
+
+fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let response = reqwest::blocking::get(url)?;
+    let bytes = response.bytes()?;
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+async fn run_tui() -> io::Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let mut app = AppState::new_for_tui();
+    let result = run_app(&mut terminal, &mut app).await;
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    result
+}
+
+async fn run_app<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut AppState,
+) -> io::Result<()> {
+    let mut last_tick = Instant::now();
+    let tick_rate = Duration::from_millis(100);
+
+    while app.running {
+        terminal.draw(|f| {
+            let area = f.area();
+
+            let theme = AppTheme::from_config(app.config.theme.as_ref());
+
+            let AppLayout { sidebar, main, status } = compute_layout(area);
+
+            Layout::render_sidebar(f, sidebar, app.current_view, &theme);
+
+            match app.current_view {
+                View::Chat => {
+                    let chat_view = ChatView::new(&app.messages, &app.input.content, &theme)
+                        .streaming(app.input_mode == InputMode::Streaming)
+                        .scroll_offset(app.scroll_offset);
+                    chat_view.render(f, main);
+                }
+                View::Image => {
+                    let image_view = ImageView::new(&app.input.content, &theme)
+                        .generating(app.input_mode == InputMode::Streaming);
+                    image_view.render(f, main);
+                }
+                View::Audio => {
+                    let audio_view = AudioView::new(&app.input.content, &app.status, &theme)
+                        .generating(app.input_mode == InputMode::Streaming);
+                    audio_view.render(f, main);
+                }
+                View::Config => {
+                    let config_view = ConfigView::new(&app.config, &theme)
+                        .with_selected(app.config_editor.selected)
+                        .with_editing(app.config_editor.editing)
+                        .with_edit_buffer(&app.config_editor.edit_buffer);
+                    config_view.render(f, main);
+                }
+            }
+
+            let provider_name = match app.config.default_provider {
+                ConfigProvider::StepFun => "StepFun",
+                ConfigProvider::MiniMax => "MiniMax",
+            };
+            let model_name = match app.config.default_provider {
+                ConfigProvider::StepFun => app.config.stepfun.as_ref().and_then(|s| s.model.as_deref()).unwrap_or("default"),
+                ConfigProvider::MiniMax => app.config.minimax.as_ref().and_then(|m| m.model.as_deref()).unwrap_or("default"),
+            };
+            let mode_label = provider_name;
+            let position_label = format!("vox | {}", model_name);
+            let help_label = "Tab: switch view  Enter: send  q: quit";
+
+            Layout::render_status_bar(f, status, mode_label, &position_label, help_label, &theme);
+        })?;
+
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            let action = input::handle_key_event(key);
+            app.handle_input(action);
+        }
+
+        app.tick();
+
+        if last_tick.elapsed() >= tick_rate {
+            last_tick = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -804,307 +1111,4 @@ mod tests {
         assert_eq!(app.config_editor.selected, 1);
         assert!(app.config_editor.editing);
     }
-}
-
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    let cli = Cli::parse();
-
-    if cli.command.is_some() {
-        run_cli(cli).await
-    } else {
-        run_tui().await
-    }
-}
-
-async fn run_cli(cli: Cli) -> io::Result<()> {
-    // Load config
-    let mut config = Config::load().unwrap_or_default();
-
-    // Override config with CLI flags
-    let provider_name = cli.global.provider.to_lowercase();
-    match provider_name.as_str() {
-        "stepfun" => config.default_provider = ConfigProvider::StepFun,
-        "minimax" => config.default_provider = ConfigProvider::MiniMax,
-        _ => {
-            eprintln!("Unknown provider: {}", cli.global.provider);
-            return Ok(());
-        }
-    }
-
-    if let Some(model) = &cli.global.model {
-        match config.default_provider {
-            ConfigProvider::StepFun => {
-                if let Some(ref mut stepfun) = config.stepfun {
-                    stepfun.model = Some(model.clone());
-                }
-            }
-            ConfigProvider::MiniMax => {
-                if let Some(ref mut minimax) = config.minimax {
-                    minimax.model = Some(model.clone());
-                }
-            }
-        }
-    }
-
-    // Override API key if provided
-    if let Some(api_key) = &cli.global.api_key {
-        match config.default_provider {
-            ConfigProvider::StepFun => {
-                if let Some(ref mut stepfun) = config.stepfun {
-                    stepfun.api_key = api_key.clone();
-                }
-            }
-            ConfigProvider::MiniMax => {
-                if let Some(ref mut minimax) = config.minimax {
-                    minimax.api_key = api_key.clone();
-                }
-            }
-        }
-    }
-
-    if let Some(group_id) = &cli.global.group_id
-        && let Some(ref mut minimax) = config.minimax
-    {
-        minimax.group_id = Some(group_id.clone());
-    }
-
-    if let Some(base_url) = &cli.global.base_url {
-        match config.default_provider {
-            ConfigProvider::StepFun => {
-                if let Some(ref mut stepfun) = config.stepfun {
-                    stepfun.base_url = Some(base_url.clone());
-                }
-            }
-            ConfigProvider::MiniMax => {
-                if let Some(ref mut minimax) = config.minimax {
-                    minimax.base_url = Some(base_url.clone());
-                }
-            }
-        }
-    }
-
-    // Create provider
-    let provider = match create_provider(&config) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to create provider: {e}");
-            return Ok(());
-        }
-    };
-
-    match cli.command {
-        Some(cli::Commands::Image { prompt, aspect_ratio, output, n }) => {
-            match provider.image_generate(&prompt, n, &aspect_ratio).await {
-                Ok(resp) => {
-                    if let Some(output_path) = output {
-                        // Download and save images
-                        for (i, url) in resp.urls.iter().enumerate() {
-                            let path = if resp.urls.len() == 1 {
-                                output_path.clone()
-                            } else {
-                                let ext = if output_path.contains('.') {
-                                    output_path.rsplit_once('.').map(|(_, e)| e).unwrap_or("png")
-                                } else {
-                                    "png"
-                                };
-                                let stem = output_path.rsplit_once('/').map(|(_, s)| s).unwrap_or(&output_path);
-                                let stem = stem.rsplit_once('.').map(|(s, _)| s).unwrap_or(stem);
-                                format!("{stem}_{i}.{ext}")
-                            };
-                            if let Err(e) = download_file(url, &path) {
-                                eprintln!("Failed to download {url}: {e}");
-                            } else {
-                                println!("Saved to {path}");
-                            }
-                        }
-                    } else {
-                        // Print URLs
-                        for url in resp.urls {
-                            println!("{url}");
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                }
-            }
-        }
-        Some(cli::Commands::Speech { text, out, voice, speed, format }) => {
-            let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            match provider.speech_synthesize(&text, &voice, speed, &format).await {
-                Ok(resp) => {
-                    if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
-                        eprintln!("Failed to write audio file: {e}");
-                    } else {
-                        println!("Saved to {output_path}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                }
-            }
-        }
-        Some(cli::Commands::Video { prompt, duration, resolution }) => {
-            match provider.video_generate(&prompt, duration, &resolution).await {
-                Ok(resp) => {
-                    println!("Task ID: {}", resp.task_id);
-                    println!("Status: {}", resp.status);
-                    if let Some(url) = resp.video_url {
-                        println!("Video URL: {url}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                }
-            }
-        }
-        Some(cli::Commands::Music { prompt, lyrics, instrumental, out }) => {
-            let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            match provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await {
-                Ok(resp) => {
-                    if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
-                        eprintln!("Failed to write audio file: {e}");
-                    } else {
-                        println!("Saved to {output_path}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                }
-            }
-        }
-        Some(cli::Commands::Search { query, count }) => {
-            match provider.search(&query, count).await {
-                Ok(resp) => {
-                    for result in resp.results {
-                        println!("{}\n  {}\n  {}\n", result.title, result.url, result.snippet);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                }
-            }
-        }
-        Some(cli::Commands::Vision { file, prompt }) => {
-            match provider.vision(&file, prompt.as_deref()).await {
-                Ok(resp) => {
-                    println!("{}", resp.description);
-                }
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                }
-            }
-        }
-        None => {
-            // Should not happen, but run TUI just in case
-            // This is handled at the call site
-        }
-    }
-
-    Ok(())
-}
-
-fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let response = reqwest::blocking::get(url)?;
-    let bytes = response.bytes()?;
-    std::fs::write(path, bytes)?;
-    Ok(())
-}
-
-async fn run_tui() -> io::Result<()> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let mut app = AppState::new_for_tui();
-    let result = run_app(&mut terminal, &mut app).await;
-
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
-    result
-}
-
-async fn run_app<B: ratatui::backend::Backend>(
-    terminal: &mut Terminal<B>,
-    app: &mut AppState,
-) -> io::Result<()> {
-    let mut last_tick = Instant::now();
-    let tick_rate = Duration::from_millis(100);
-
-    while app.running {
-        terminal.draw(|f| {
-            let area = f.area();
-
-            let theme = AppTheme::from_config(app.config.theme.as_ref());
-
-            let AppLayout { sidebar, main, status } = compute_layout(area);
-
-            Layout::render_sidebar(f, sidebar, app.current_view, &theme);
-
-            match app.current_view {
-                View::Chat => {
-                    let chat_view = ChatView::new(&app.messages, &app.input.content, &theme)
-                        .streaming(app.input_mode == InputMode::Streaming)
-                        .scroll_offset(app.scroll_offset);
-                    chat_view.render(f, main);
-                }
-                View::Image => {
-                    let image_view = ImageView::new(&app.input.content, &theme)
-                        .generating(app.input_mode == InputMode::Streaming);
-                    image_view.render(f, main);
-                }
-                View::Audio => {
-                    let audio_view = AudioView::new(&app.input.content, &app.status, &theme)
-                        .generating(app.input_mode == InputMode::Streaming);
-                    audio_view.render(f, main);
-                }
-                View::Config => {
-                    let config_view = ConfigView::new(&app.config, &theme)
-                        .with_selected(app.config_editor.selected)
-                        .with_editing(app.config_editor.editing)
-                        .with_edit_buffer(&app.config_editor.edit_buffer);
-                    config_view.render(f, main);
-                }
-            }
-
-            let provider_name = match app.config.default_provider {
-                ConfigProvider::StepFun => "StepFun",
-                ConfigProvider::MiniMax => "MiniMax",
-            };
-            let model_name = match app.config.default_provider {
-                ConfigProvider::StepFun => app.config.stepfun.as_ref().and_then(|s| s.model.as_deref()).unwrap_or("default"),
-                ConfigProvider::MiniMax => app.config.minimax.as_ref().and_then(|m| m.model.as_deref()).unwrap_or("default"),
-            };
-            let mode_label = provider_name;
-            let position_label = format!("vox | {}", model_name);
-            let help_label = "Tab: switch view  Enter: send  q: quit";
-
-            Layout::render_status_bar(f, status, mode_label, &position_label, help_label, &theme);
-        })?;
-
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
-
-        if event::poll(timeout)?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            let action = input::handle_key_event(key);
-            app.handle_input(action);
-        }
-
-        app.tick();
-
-        if last_tick.elapsed() >= tick_rate {
-            last_tick = Instant::now();
-        }
-    }
-
-    Ok(())
 }

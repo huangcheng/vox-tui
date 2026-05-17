@@ -458,17 +458,19 @@ mod tests {
 
     #[test]
     fn test_work_result_variants() {
-        let r = WorkResult::ChatResponse { content: "hi".into(), model: "m".into() };
-        let r = WorkResult::StreamChunk("chunk".into());
-        let r = WorkResult::StreamDone;
-        let r = WorkResult::Error("fail".into());
-        let r = WorkResult::ImageGenerated { urls: vec!["u".into()] };
-        let r = WorkResult::SpeechGenerated { audio_data: vec![1,2,3], format: "mp3".into() };
-        let r = WorkResult::VideoGenerated { task_id: "t".into(), status: "ok".into(), video_url: None };
-        let r = WorkResult::MusicGenerated { audio_data: vec![], format: "mp3".into() };
-        let r = WorkResult::SearchResults { results: vec![] };
-        let r = WorkResult::VisionResult { description: "desc".into() };
-        // Just verify they all compile
-        let _ = r;
+        // Construct each variant to ensure the enum compiles.
+        let variants = [
+            WorkResult::ChatResponse { content: "hi".into(), model: "m".into() },
+            WorkResult::StreamChunk("chunk".into()),
+            WorkResult::StreamDone,
+            WorkResult::Error("fail".into()),
+            WorkResult::ImageGenerated { urls: vec!["u".into()] },
+            WorkResult::SpeechGenerated { audio_data: vec![1, 2, 3], format: "mp3".into() },
+            WorkResult::VideoGenerated { task_id: "t".into(), status: "ok".into(), video_url: None },
+            WorkResult::MusicGenerated { audio_data: vec![], format: "mp3".into() },
+            WorkResult::SearchResults { results: vec![] },
+            WorkResult::VisionResult { description: "desc".into() },
+        ];
+        assert_eq!(variants.len(), 10);
     }
 }

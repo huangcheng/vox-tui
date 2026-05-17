@@ -93,7 +93,20 @@ impl AppTheme {
 }
 
 fn parse_color(name: &str) -> Option<Color> {
-    match name.to_lowercase().as_str() {
+    let lower = name.trim().to_lowercase();
+    if let Some(hex) = lower.strip_prefix('#') {
+        if hex.len() == 6
+            && let (Ok(r), Ok(g), Ok(b)) = (
+                u8::from_str_radix(&hex[0..2], 16),
+                u8::from_str_radix(&hex[2..4], 16),
+                u8::from_str_radix(&hex[4..6], 16),
+            )
+        {
+            return Some(Color::Rgb(r, g, b));
+        }
+        return None;
+    }
+    match lower.as_str() {
         "cyan" => Some(Color::Cyan),
         "green" => Some(Color::Green),
         "blue" => Some(Color::Blue),

@@ -71,10 +71,9 @@ impl<'a> ConfigView<'a> {
     fn mask_api_key(key: &str) -> String {
         if key.is_empty() {
             "(not set)".to_string()
-        } else if key.len() <= 4 {
-            format!("{}***", key)
         } else {
-            format!("{}***", &key[..4])
+            let visible: String = key.chars().take(4).collect();
+            format!("{visible}***")
         }
     }
 

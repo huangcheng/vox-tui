@@ -73,6 +73,7 @@ pub fn handle_key_event(key: KeyEvent) -> InputAction {
 
 pub struct TextInputState {
     pub content: String,
+    /// Byte offset of the cursor within `content`. Always on a UTF-8 char boundary.
     pub cursor_pos: usize,
 }
 
@@ -94,31 +95,33 @@ impl TextInputState {
 
     pub fn insert_char(&mut self, c: char) {
         self.content.insert(self.cursor_pos, c);
-        self.cursor_pos += 1;
+        self.cursor_pos += c.len_utf8();
     }
 
     pub fn backspace(&mut self) {
         if self.cursor_pos > 0 {
-            self.cursor_pos -= 1;
-            self.content.remove(self.cursor_pos);
+            let new_pos = self.prev_char_boundary(self.cursor_pos);
+            self.content.replace_range(new_pos..self.cursor_pos, "");
+            self.cursor_pos = new_pos;
         }
     }
 
     pub fn delete(&mut self) {
         if self.cursor_pos < self.content.len() {
-            self.content.remove(self.cursor_pos);
+            let next_pos = self.next_char_boundary(self.cursor_pos);
+            self.content.replace_range(self.cursor_pos..next_pos, "");
         }
     }
 
     pub fn move_left(&mut self) {
         if self.cursor_pos > 0 {
-            self.cursor_pos -= 1;
+            self.cursor_pos = self.prev_char_boundary(self.cursor_pos);
         }
     }
 
     pub fn move_right(&mut self) {
         if self.cursor_pos < self.content.len() {
-            self.cursor_pos += 1;
+            self.cursor_pos = self.next_char_boundary(self.cursor_pos);
         }
     }
 
@@ -139,6 +142,23 @@ impl TextInputState {
     pub fn clear(&mut self) {
         self.content.clear();
         self.cursor_pos = 0;
+    }
+
+    fn prev_char_boundary(&self, pos: usize) -> usize {
+        let mut p = pos.saturating_sub(1);
+        while p > 0 && !self.content.is_char_boundary(p) {
+            p -= 1;
+        }
+        p
+    }
+
+    fn next_char_boundary(&self, pos: usize) -> usize {
+        let len = self.content.len();
+        let mut p = (pos + 1).min(len);
+        while p < len && !self.content.is_char_boundary(p) {
+            p += 1;
+        }
+        p
     }
 }
 
@@ -376,5 +396,59 @@ mod tests {
         assert_ne!(InputMode::Normal, InputMode::Typing);
         assert_ne!(InputMode::Streaming, InputMode::ConfigEditing);
         assert_eq!(InputMode::ConfigNavigating, InputMode::ConfigNavigating);
+    }
+
+    #[test]
+    fn test_text_input_multibyte_insert() {
+        let mut input = TextInputState::new();
+        input.insert_char('日');
+        input.insert_char('本');
+        input.insert_char('語');
+        assert_eq!(input.content, "日本語");
+        assert_eq!(input.cursor_pos, 9); // 3 chars × 3 bytes each
+    }
+
+    #[test]
+    fn test_text_input_multibyte_backspace() {
+        let mut input = TextInputState::with_content("日本");
+        input.backspace();
+        assert_eq!(input.content, "日");
+        input.backspace();
+        assert!(input.content.is_empty());
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_multibyte_delete() {
+        let mut input = TextInputState::with_content("日本");
+        input.move_home();
+        input.delete();
+        assert_eq!(input.content, "本");
+        assert_eq!(input.cursor_pos, 0);
+    }
+
+    #[test]
+    fn test_text_input_multibyte_move() {
+        let mut input = TextInputState::with_content("aé本z");
+        input.move_home();
+        input.move_right(); // past 'a'
+        assert_eq!(input.cursor_pos, 1);
+        input.move_right(); // past 'é' (2 bytes)
+        assert_eq!(input.cursor_pos, 3);
+        input.move_right(); // past '本' (3 bytes)
+        assert_eq!(input.cursor_pos, 6);
+        input.move_left();
+        assert_eq!(input.cursor_pos, 3);
+    }
+
+    #[test]
+    fn test_text_input_emoji_insert() {
+        let mut input = TextInputState::new();
+        input.insert_char('🚀');
+        input.insert_char('a');
+        assert_eq!(input.content, "🚀a");
+        input.move_home();
+        input.move_right(); // past emoji
+        assert_eq!(input.cursor_pos, 4); // 🚀 is 4 bytes
     }
 }
