@@ -297,9 +297,42 @@ impl AppState {
             _ => {}
         }
 
+        let (provider_field, category) = match field {
+            ConfigField::StepFunModelChat => ("stepfun", "chat"),
+            ConfigField::StepFunModelImage => ("stepfun", "image"),
+            ConfigField::StepFunModelSpeech => ("stepfun", "speech"),
+            ConfigField::StepFunModelVideo => ("stepfun", "video"),
+            ConfigField::StepFunModelMusic => ("stepfun", "music"),
+            ConfigField::StepFunModelVision => ("stepfun", "vision"),
+            ConfigField::MiniMaxModelChat => ("minimax", "chat"),
+            ConfigField::MiniMaxModelImage => ("minimax", "image"),
+            ConfigField::MiniMaxModelSpeech => ("minimax", "speech"),
+            ConfigField::MiniMaxModelVideo => ("minimax", "video"),
+            ConfigField::MiniMaxModelMusic => ("minimax", "music"),
+            ConfigField::MiniMaxModelVision => ("minimax", "vision"),
+            _ => return,
+        };
+
+        if !self.config_edit_buffer.is_empty() {
+            let models = match provider_field {
+                "stepfun" => self.config.stepfun.as_mut().map(|s| &mut s.models),
+                "minimax" => self.config.minimax.as_mut().map(|m| &mut m.models),
+                _ => None,
+            };
+            if let Some(models) = models
+                && let Some(cat_models) = models.get_mut(category)
+            {
+                cat_models.default = Some(self.config_edit_buffer.clone());
+            }
+        }
+
         let new_fields = self.config_fields();
         if self.config_selected >= new_fields.len() {
             self.config_selected = new_fields.len().saturating_sub(1);
+        }
+
+        if let Err(e) = self.config.save() {
+            self.messages.push(ChatMessage::system(format!("Failed to save config: {}", e)));
         }
     }
 

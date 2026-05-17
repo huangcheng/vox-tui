@@ -5,6 +5,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn mask_key(key: &str) -> String {
+    if key.is_empty() {
+        return "(not set)".to_string();
+    }
+    let visible = key.len().min(4);
+    format!("{}***", &key[..visible])
+}
+
 const DEFAULT_CONFIG_TOML: &str = r#"
 default_provider = "minimax"
 
@@ -100,9 +108,21 @@ impl ProviderModels {
             _ => None,
         }
     }
+
+    pub fn get_mut(&mut self, category: &str) -> Option<&mut CategoryModels> {
+        match category {
+            "chat" => self.chat.as_mut(),
+            "image" => self.image.as_mut(),
+            "speech" => self.speech.as_mut(),
+            "video" => self.video.as_mut(),
+            "music" => self.music.as_mut(),
+            "vision" => self.vision.as_mut(),
+            _ => None,
+        }
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StepFunConfig {
     #[serde(default)]
     pub api_key: String,
@@ -112,7 +132,18 @@ pub struct StepFunConfig {
     pub models: ProviderModels,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl std::fmt::Debug for StepFunConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StepFunConfig")
+            .field("api_key", &mask_key(&self.api_key))
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("models", &self.models)
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MiniMaxConfig {
     #[serde(default)]
     pub api_key: String,
@@ -121,6 +152,18 @@ pub struct MiniMaxConfig {
     pub model: Option<String>,
     #[serde(default)]
     pub models: ProviderModels,
+}
+
+impl std::fmt::Debug for MiniMaxConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MiniMaxConfig")
+            .field("api_key", &mask_key(&self.api_key))
+            .field("group_id", &self.group_id)
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("models", &self.models)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -614,5 +657,52 @@ api_key = "sk-backward-compat"
         let config = Config::default_config();
         let models = config.get_available_models("chat");
         assert!(!models.is_empty());
+    }
+
+    #[test]
+    fn test_stepfun_debug_masks_api_key() {
+        let cfg = StepFunConfig {
+            api_key: "sk-secret-key-12345".to_string(),
+            base_url: Some("https://api.stepfun.com".into()),
+            model: None,
+            models: ProviderModels::default(),
+        };
+        let debug = format!("{:?}", cfg);
+        assert!(debug.contains("sk-s***"), "should mask api_key, got: {}", debug);
+        assert!(!debug.contains("secret-key-12345"), "should NOT contain full key, got: {}", debug);
+        assert!(debug.contains("stepfun.com"), "should contain base_url");
+    }
+
+    #[test]
+    fn test_minimax_debug_masks_api_key() {
+        let cfg = MiniMaxConfig {
+            api_key: "mm-super-secret".to_string(),
+            group_id: None,
+            base_url: None,
+            model: None,
+            models: ProviderModels::default(),
+        };
+        let debug = format!("{:?}", cfg);
+        assert!(debug.contains("mm-s***"), "should mask api_key, got: {}", debug);
+        assert!(!debug.contains("super-secret"), "should NOT contain full key, got: {}", debug);
+    }
+
+    #[test]
+    fn test_debug_empty_key_shows_not_set() {
+        let cfg = StepFunConfig {
+            api_key: String::new(),
+            base_url: None,
+            model: None,
+            models: ProviderModels::default(),
+        };
+        let debug = format!("{:?}", cfg);
+        assert!(debug.contains("(not set)"), "empty key should show '(not set)', got: {}", debug);
+    }
+
+    #[test]
+    fn test_mask_key_utility() {
+        assert_eq!(mask_key(""), "(not set)");
+        assert_eq!(mask_key("ab"), "ab***");
+        assert_eq!(mask_key("abcdefgh"), "abcd***");
     }
 }
