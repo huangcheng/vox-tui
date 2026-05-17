@@ -12,7 +12,7 @@ pub struct ImageView<'a> {
     prompt: &'a str,
     is_generating: bool,
     preview_text: Option<&'a str>,
-    theme: &'a AppTheme,
+    _theme: &'a AppTheme,
 }
 
 impl<'a> ImageView<'a> {
@@ -21,7 +21,7 @@ impl<'a> ImageView<'a> {
             prompt,
             is_generating: false,
             preview_text: None,
-            theme,
+            _theme: theme,
         }
     }
 
@@ -85,7 +85,7 @@ impl<'a> ImageView<'a> {
         };
 
         let input = InputField::new(input_label, self.prompt)
-            .focused(!self.is_generating);
+            .focused(true);
         f.render_widget(input, input_area);
     }
 }

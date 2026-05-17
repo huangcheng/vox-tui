@@ -11,7 +11,7 @@ pub struct ChatView<'a> {
     input_text: &'a str,
     is_streaming: bool,
     scroll_offset: u16,
-    theme: &'a AppTheme,
+    _theme: &'a AppTheme,
 }
 
 impl<'a> ChatView<'a> {
@@ -21,7 +21,7 @@ impl<'a> ChatView<'a> {
             input_text,
             is_streaming: false,
             scroll_offset: 0,
-            theme,
+            _theme: theme,
         }
     }
 
@@ -57,7 +57,7 @@ impl<'a> ChatView<'a> {
         };
 
         let input = InputField::new(input_label, self.input_text)
-            .focused(!self.is_streaming);
+            .focused(true);
         f.render_widget(input, input_area);
     }
 }
