@@ -5,5 +5,5 @@ mod image;
 
 pub use audio::AudioView;
 pub use chat::ChatView;
-pub use config::ConfigView;
+pub use config::{ConfigField, ConfigView};
 pub use image::ImageView;

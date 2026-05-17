@@ -357,6 +357,7 @@ mod tests {
                 api_key: "test-key".into(),
                 base_url: None,
                 model: None,
+                models: crate::config::ProviderModels::default(),
             }),
             minimax: None,
             theme: None,
@@ -377,6 +378,7 @@ mod tests {
                 group_id: None,
                 base_url: None,
                 model: None,
+                models: crate::config::ProviderModels::default(),
             }),
             theme: None,
         };

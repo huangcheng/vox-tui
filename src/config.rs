@@ -5,6 +5,56 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const DEFAULT_CONFIG_TOML: &str = r#"
+default_provider = "minimax"
+
+[stepfun]
+base_url = "https://api.stepfun.com"
+timeout = 120
+
+[stepfun.models.chat]
+default = "step-1o-pro-20250506"
+available = ["step-1o-pro-20250506", "step-1o-mini"]
+
+[stepfun.models.image]
+default = "step-1x-high"
+available = ["step-1x-high", "step-1x-medium"]
+
+[stepfun.models.speech]
+default = "step-tts"
+available = ["step-tts", "step-tts-mini"]
+
+[stepfun.models.video]
+default = "step-video"
+
+[stepfun.models.music]
+default = "step-music"
+
+[minimax]
+base_url = "https://api.minimax.chat"
+timeout = 120
+
+[minimax.models.chat]
+default = "MiniMax-Text-01"
+available = ["MiniMax-Text-01", "MiniMax-Text-01-Turbo"]
+
+[minimax.models.image]
+default = "image-01"
+
+[minimax.models.speech]
+default = "speech-01"
+available = ["speech-01", "speech-02-turbo"]
+
+[minimax.models.video]
+default = "video-01"
+
+[minimax.models.music]
+default = "music-01"
+
+[minimax.models.vision]
+default = "vision-01"
+"#;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
@@ -22,19 +72,55 @@ impl std::fmt::Display for Provider {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CategoryModels {
+    pub default: Option<String>,
+    pub available: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProviderModels {
+    pub chat: Option<CategoryModels>,
+    pub image: Option<CategoryModels>,
+    pub speech: Option<CategoryModels>,
+    pub video: Option<CategoryModels>,
+    pub music: Option<CategoryModels>,
+    pub vision: Option<CategoryModels>,
+}
+
+impl ProviderModels {
+    pub fn get(&self, category: &str) -> Option<&CategoryModels> {
+        match category {
+            "chat" => self.chat.as_ref(),
+            "image" => self.image.as_ref(),
+            "speech" => self.speech.as_ref(),
+            "video" => self.video.as_ref(),
+            "music" => self.music.as_ref(),
+            "vision" => self.vision.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepFunConfig {
+    #[serde(default)]
     pub api_key: String,
     pub base_url: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub models: ProviderModels,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiniMaxConfig {
+    #[serde(default)]
     pub api_key: String,
     pub group_id: Option<String>,
     pub base_url: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub models: ProviderModels,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,9 +165,27 @@ impl Config {
         Self::config_dir().map(|p| p.join("config.toml"))
     }
 
+    pub fn default_config() -> Self {
+        toml::from_str(DEFAULT_CONFIG_TOML)
+            .unwrap_or_default()
+    }
+
+    /// Load user config merged over defaults
     pub fn load() -> Result<Self, ConfigError> {
         let path = Self::config_path().ok_or(ConfigError::NoConfigDir)?;
-        Self::load_from(&path)
+
+        if !path.exists() {
+            return Ok(Self::default_config());
+        }
+
+        let user_content = fs::read_to_string(&path).map_err(ConfigError::Io)?;
+        let user_config: Config = toml::from_str(&user_content).map_err(ConfigError::Parse)?;
+
+        let mut config = Self::default_config();
+        config.merge(user_config);
+
+        config.validate()?;
+        Ok(config)
     }
 
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
@@ -89,6 +193,88 @@ impl Config {
         let config: Config = toml::from_str(&content).map_err(ConfigError::Parse)?;
         config.validate()?;
         Ok(config)
+    }
+
+    /// Merge user config over self (user values take precedence)
+    pub fn merge(&mut self, user: Config) {
+        self.default_provider = user.default_provider;
+
+        if let Some(sf) = user.stepfun {
+            if let Some(ref mut self_sf) = self.stepfun {
+                if !sf.api_key.is_empty() {
+                    self_sf.api_key = sf.api_key;
+                }
+                if sf.base_url.is_some() {
+                    self_sf.base_url = sf.base_url;
+                }
+                if sf.model.is_some() {
+                    self_sf.model = sf.model;
+                }
+                self_sf.models = sf.models;
+            } else {
+                self.stepfun = Some(sf);
+            }
+        }
+
+        if let Some(mm) = user.minimax {
+            if let Some(ref mut self_mm) = self.minimax {
+                if !mm.api_key.is_empty() {
+                    self_mm.api_key = mm.api_key;
+                }
+                if mm.group_id.is_some() {
+                    self_mm.group_id = mm.group_id;
+                }
+                if mm.base_url.is_some() {
+                    self_mm.base_url = mm.base_url;
+                }
+                if mm.model.is_some() {
+                    self_mm.model = mm.model;
+                }
+                self_mm.models = mm.models;
+            } else {
+                self.minimax = Some(mm);
+            }
+        }
+
+        if let Some(theme) = user.theme {
+            self.theme = Some(theme);
+        }
+    }
+
+    /// Get the default model for a category from the current provider
+    pub fn get_model_for(&self, category: &str) -> Option<String> {
+        match self.default_provider {
+            Provider::StepFun => self.stepfun.as_ref().and_then(|sf| {
+                sf.models
+                    .get(category)
+                    .and_then(|c| c.default.clone())
+                    .or(sf.model.clone())
+            }),
+            Provider::MiniMax => self.minimax.as_ref().and_then(|mm| {
+                mm.models
+                    .get(category)
+                    .and_then(|c| c.default.clone())
+                    .or(mm.model.clone())
+            }),
+        }
+    }
+
+    /// Get available models for a category from the current provider
+    pub fn get_available_models(&self, category: &str) -> Vec<String> {
+        match self.default_provider {
+            Provider::StepFun => self
+                .stepfun
+                .as_ref()
+                .and_then(|sf| sf.models.get(category))
+                .map(|c| c.available.clone().unwrap_or_default())
+                .unwrap_or_default(),
+            Provider::MiniMax => self
+                .minimax
+                .as_ref()
+                .and_then(|mm| mm.models.get(category))
+                .map(|c| c.available.clone().unwrap_or_default())
+                .unwrap_or_default(),
+        }
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
@@ -106,20 +292,6 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        match &self.default_provider {
-            Provider::StepFun => {
-                let cfg = self.stepfun.as_ref().ok_or(ConfigError::MissingProviderConfig("stepfun"))?;
-                if cfg.api_key.is_empty() {
-                    return Err(ConfigError::EmptyField("stepfun.api_key"));
-                }
-            }
-            Provider::MiniMax => {
-                let cfg = self.minimax.as_ref().ok_or(ConfigError::MissingProviderConfig("minimax"))?;
-                if cfg.api_key.is_empty() {
-                    return Err(ConfigError::EmptyField("minimax.api_key"));
-                }
-            }
-        }
         Ok(())
     }
 
@@ -201,6 +373,7 @@ mod tests {
                 api_key: "sk-test-key".to_string(),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             minimax: None,
             theme: None,
@@ -214,29 +387,30 @@ mod tests {
     }
 
     #[test]
-    fn test_config_validation_missing_provider() {
+    fn test_config_validation_lenient() {
         let config = Config {
             default_provider: Provider::StepFun,
             stepfun: None,
             minimax: None,
             theme: None,
         };
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn test_config_validation_empty_key() {
+    fn test_config_validation_empty_key_allowed() {
         let config = Config {
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: String::new(),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             minimax: None,
             theme: None,
         };
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -256,12 +430,14 @@ mod tests {
                 api_key: "sk-test-key".to_string(),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             minimax: Some(MiniMaxConfig {
                 api_key: "mm-test-key".to_string(),
                 group_id: None,
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             theme: None,
         };
@@ -279,6 +455,7 @@ mod tests {
                 api_key: "sk-test-key".to_string(),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             minimax: None,
             theme: None,
@@ -308,12 +485,14 @@ mod tests {
                 api_key: "sk-test-key".to_string(),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             minimax: Some(MiniMaxConfig {
                 api_key: "mm-test-key".to_string(),
                 group_id: None,
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             theme: None,
         };
@@ -329,6 +508,7 @@ mod tests {
                 api_key: "sk-test-key".to_string(),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             minimax: None,
             theme: None,
@@ -343,6 +523,7 @@ mod tests {
                 group_id: None,
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             theme: None,
         };
@@ -371,12 +552,14 @@ api_key = "sk-backward-compat"
                 api_key: "sk-test-key".to_string(),
                 base_url: Some("https://stepfun.example.com".to_string()),
                 model: Some("stepfun-model".to_string()),
+                models: ProviderModels::default(),
             }),
             minimax: Some(MiniMaxConfig {
                 api_key: "mm-test-key".to_string(),
                 group_id: Some("group-123".to_string()),
                 base_url: None,
                 model: None,
+                models: ProviderModels::default(),
             }),
             theme: Some(ThemeConfig {
                 accent_color: Some("#ff0000".to_string()),
@@ -389,5 +572,47 @@ api_key = "sk-backward-compat"
         assert_eq!(config.stepfun.as_ref().unwrap().api_key, parsed.stepfun.as_ref().unwrap().api_key);
         assert_eq!(config.minimax.as_ref().unwrap().api_key, parsed.minimax.as_ref().unwrap().api_key);
         assert_eq!(config.theme.as_ref().unwrap().accent_color, parsed.theme.as_ref().unwrap().accent_color);
+    }
+
+    #[test]
+    fn test_default_config_loads() {
+        let config = Config::default_config();
+        assert_eq!(config.default_provider, Provider::MiniMax);
+        assert!(config.minimax.is_some());
+        let mm = config.minimax.as_ref().unwrap();
+        assert!(mm.models.chat.is_some());
+    }
+
+    #[test]
+    fn test_merge_user_over_default() {
+        let mut config = Config::default_config();
+        let user = Config {
+            default_provider: Provider::StepFun,
+            stepfun: Some(StepFunConfig {
+                api_key: "sk-real-key".to_string(),
+                base_url: None,
+                model: None,
+                models: ProviderModels::default(),
+            }),
+            minimax: None,
+            theme: None,
+        };
+        config.merge(user);
+        assert_eq!(config.default_provider, Provider::StepFun);
+        assert_eq!(config.stepfun.as_ref().unwrap().api_key, "sk-real-key");
+    }
+
+    #[test]
+    fn test_get_model_for_category() {
+        let config = Config::default_config();
+        let chat_model = config.get_model_for("chat");
+        assert!(chat_model.is_some());
+    }
+
+    #[test]
+    fn test_get_available_models() {
+        let config = Config::default_config();
+        let models = config.get_available_models("chat");
+        assert!(!models.is_empty());
     }
 }
