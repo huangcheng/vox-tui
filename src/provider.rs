@@ -226,12 +226,12 @@ impl AIProvider for StepFunProvider {
         Err(ProviderError::Unsupported("music generation".into()))
     }
 
-    async fn search(&self, _query: &str, _count: u8) -> ProviderResult<SearchResponse> {
-        Err(ProviderError::Unsupported("search".into()))
+    async fn search(&self, query: &str, count: u8) -> ProviderResult<SearchResponse> {
+        self.client.search(query, count).await.map_err(ProviderError::StepFun)
     }
 
-    async fn vision(&self, _image_path: &str, _prompt: Option<&str>) -> ProviderResult<VisionResponse> {
-        Err(ProviderError::Unsupported("vision".into()))
+    async fn vision(&self, image_path: &str, prompt: Option<&str>) -> ProviderResult<VisionResponse> {
+        self.client.vision(image_path, prompt).await.map_err(ProviderError::StepFun)
     }
 }
 

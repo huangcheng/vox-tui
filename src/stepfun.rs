@@ -1,3 +1,6 @@
+use std::io::Read;
+use std::path::Path;
+use base64::Engine;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
@@ -200,6 +203,103 @@ impl StepFunClient {
 
         Ok(stream)
     }
+
+    // ── Search ─────────────────────────────────────────────────────
+
+    pub async fn search(
+        &self,
+        query: &str,
+        n: u8,
+    ) -> Result<crate::provider::SearchResponse, StepFunError> {
+        let url = format!("{}/search", self.base_url);
+        let body = serde_json::json!({
+            "query": query,
+            "n": n,
+        });
+
+        let response = self
+            .client
+            .post(url)
+            .headers(self.headers()?)
+            .json(&body)
+            .send()
+            .await
+            .map_err(StepFunError::Http)?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(StepFunError::Api { status: status.as_u16(), message: text });
+        }
+
+        let json: SearchApiResponse = response.json().await.map_err(StepFunError::Parse)?;
+        let results: Vec<crate::provider::SearchResult> = json
+            .results
+            .into_iter()
+            .map(|r| crate::provider::SearchResult {
+                title: if r.title.is_empty() { r.url.clone() } else { r.title },
+                url: r.url,
+                snippet: if r.snippet.is_empty() { r.content } else { r.snippet },
+            })
+            .collect();
+
+        Ok(crate::provider::SearchResponse { results })
+    }
+
+    // ── Vision ─────────────────────────────────────────────────────
+
+    pub async fn vision(
+        &self,
+        image_path: &str,
+        prompt: Option<&str>,
+    ) -> Result<crate::provider::VisionResponse, StepFunError> {
+        let image_url = if image_path.starts_with("http://") || image_path.starts_with("https://") {
+            image_path.to_string()
+        } else {
+            Self::file_to_data_uri(image_path)?
+        };
+
+        let text = prompt.unwrap_or("Describe this image");
+        let user_content = serde_json::json!([
+            { "type": "text", "text": text },
+            { "type": "image_url", "image_url": { "url": image_url } },
+        ]);
+
+        let url = format!("{}/chat/completions", self.base_url);
+        let body = serde_json::json!({
+            "model": "step-1v-8k",
+            "messages": [{
+                "role": "user",
+                "content": user_content,
+            }],
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .headers(self.headers()?)
+            .json(&body)
+            .send()
+            .await
+            .map_err(StepFunError::Http)?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(StepFunError::Api { status: status.as_u16(), message: text });
+        }
+
+        let completion: ChatCompletionResponse = response.json().await.map_err(StepFunError::Parse)?;
+        let description = completion
+            .choices
+            .first()
+            .and_then(|c| {
+                if c.message.content.is_empty() { None } else { Some(c.message.content.clone()) }
+            })
+            .unwrap_or_else(|| "No description available".to_string());
+
+        Ok(crate::provider::VisionResponse { description })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -312,6 +412,59 @@ struct SSEDelta {
     content: Option<String>,
 }
 
+// ── Search API types ───────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct SearchApiResponse {
+    query: String,
+    n: u8,
+    results: Vec<SearchResultRaw>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct SearchResultRaw {
+    url: String,
+    position: u32,
+    time: String,
+    #[serde(default)]
+    snippet: String,
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    title: String,
+}
+
+// ── Helper functions ───────────────────────────────────────────────
+
+impl StepFunClient {
+    fn file_to_data_uri(path: &str) -> Result<String, StepFunError> {
+        let path = Path::new(path);
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png");
+
+        let mime_type = match ext.to_lowercase().as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            _ => "image/png",
+        };
+
+        let mut file = std::fs::File::open(path)
+            .map_err(|e| StepFunError::Header(format!("Failed to open image file: {}", e)))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|e| StepFunError::Header(format!("Failed to read image file: {}", e)))?;
+
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        Ok(format!("data:{};base64,{}", mime_type, encoded))
+    }
+}
+
 #[derive(Debug)]
 pub enum StepFunError {
     Http(reqwest::Error),
@@ -358,5 +511,221 @@ mod tests {
         let chunk = "";
         let result = parse_sse_chunk(chunk).unwrap();
         assert!(result.is_none());
+    }
+
+    // ── Search and Vision tests using mockito ───────────────────────
+
+    #[tokio::test]
+    async fn test_search_success() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/search")
+            .match_header("authorization", "Bearer test-key")
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .with_body(r#"{
+                "query": "rust programming",
+                "n": 2,
+                "results": [
+                    {
+                        "url": "https://example.com/rust",
+                        "position": 1,
+                        "time": "2024-01-01",
+                        "snippet": "Rust is a systems programming language",
+                        "content": "",
+                        "title": "Rust Programming"
+                    },
+                    {
+                        "url": "https://example.com/rust2",
+                        "position": 2,
+                        "time": "2024-01-02",
+                        "snippet": "",
+                        "content": "Rust memory safety features",
+                        "title": ""
+                    }
+                ]
+            }"#)
+            .create();
+
+        let client = StepFunClient::with_config("test-key", Some(&server.url()), None, None);
+        let result = client.search("rust programming", 2).await.unwrap();
+
+        assert_eq!(result.results.len(), 2);
+        assert_eq!(result.results[0].title, "Rust Programming");
+        assert_eq!(result.results[0].url, "https://example.com/rust");
+        assert_eq!(result.results[0].snippet, "Rust is a systems programming language");
+        // Second result: empty title -> use URL, empty snippet -> use content
+        assert_eq!(result.results[1].title, "https://example.com/rust2");
+        assert_eq!(result.results[1].snippet, "Rust memory safety features");
+
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_search_api_error() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/search")
+            .with_status(401)
+            .with_body(r#"{"error": "Unauthorized"}"#)
+            .create();
+
+        let client = StepFunClient::with_config("bad-key", Some(&server.url()), None, None);
+        let result = client.search("test", 1).await;
+        assert!(result.is_err());
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_vision_with_url() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
+            .match_header("authorization", "Bearer test-key")
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .with_body(r#"{
+                "id": "chatcmpl-123",
+                "object": "chat.completion",
+                "created": 1234567890,
+                "model": "step-1v-8k",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "This is a beautiful sunset over the ocean."
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 10,
+                    "total_tokens": 110
+                }
+            }"#)
+            .create();
+
+        let client = StepFunClient::with_config("test-key", Some(&server.url()), None, None);
+        let result = client
+            .vision("https://example.com/image.jpg", Some("Describe this image"))
+            .await
+            .unwrap();
+
+        assert_eq!(result.description, "This is a beautiful sunset over the ocean.");
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_vision_with_file() {
+        // Create a temporary test image file
+        let temp_dir = std::env::temp_dir().join("stepfun_test");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let image_path = temp_dir.join("test.png");
+        // Write a minimal valid PNG file (1x1 pixel, white)
+        let minimal_png: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&image_path, minimal_png).unwrap();
+
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
+            .match_header("authorization", "Bearer test-key")
+            .match_header("content-type", "application/json")
+            .with_status(200)
+            .with_body(r#"{
+                "id": "chatcmpl-456",
+                "object": "chat.completion",
+                "created": 1234567891,
+                "model": "step-1v-8k",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "A small white square."
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 50,
+                    "completion_tokens": 5,
+                    "total_tokens": 55
+                }
+            }"#)
+            .create();
+
+        let client = StepFunClient::with_config("test-key", Some(&server.url()), None, None);
+        let result = client
+            .vision(image_path.to_str().unwrap(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.description, "A small white square.");
+        mock.assert();
+
+        // Cleanup
+        std::fs::remove_file(&image_path).ok();
+        std::fs::remove_dir(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_file_to_data_uri_png() {
+        let temp_dir = std::env::temp_dir().join("stepfun_test_uri");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let image_path = temp_dir.join("test.png");
+        let content = b"fake png data";
+        std::fs::write(&image_path, content).unwrap();
+
+        let data_uri = StepFunClient::file_to_data_uri(image_path.to_str().unwrap()).unwrap();
+        assert!(data_uri.starts_with("data:image/png;base64,"));
+        let encoded = &data_uri["data:image/png;base64,".len()..];
+        let decoded = base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
+        assert_eq!(decoded, content);
+
+        // Cleanup
+        std::fs::remove_file(&image_path).ok();
+        std::fs::remove_dir(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_file_to_data_uri_jpg() {
+        let temp_dir = std::env::temp_dir().join("stepfun_test_uri");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let image_path = temp_dir.join("test.jpg");
+        let content = b"fake jpg data";
+        std::fs::write(&image_path, content).unwrap();
+
+        let data_uri = StepFunClient::file_to_data_uri(image_path.to_str().unwrap()).unwrap();
+        assert!(data_uri.starts_with("data:image/jpeg;base64,"));
+
+        // Cleanup
+        std::fs::remove_file(&image_path).ok();
+        std::fs::remove_dir(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_file_to_data_uri_unknown_ext() {
+        let temp_dir = std::env::temp_dir().join("stepfun_test_uri");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let image_path = temp_dir.join("test.xyz");
+        let content = b"fake data";
+        std::fs::write(&image_path, content).unwrap();
+
+        let data_uri = StepFunClient::file_to_data_uri(image_path.to_str().unwrap()).unwrap();
+        assert!(data_uri.starts_with("data:image/png;base64,"));
+
+        // Cleanup
+        std::fs::remove_file(&image_path).ok();
+        std::fs::remove_dir(&temp_dir).ok();
+    }
+
+    #[test]
+    fn test_file_to_data_uri_not_found() {
+        let result = StepFunClient::file_to_data_uri("/nonexistent/path/image.png");
+        assert!(result.is_err());
     }
 }
