@@ -1,46 +1,44 @@
-mod app;
 mod config;
-mod input;
 pub mod minimax;
 pub mod provider;
 mod stepfun;
-pub mod ui;
 pub mod cli;
 pub mod command;
 
-use std::{
-    io,
-    time::{Duration, Instant},
-};
+#[cfg(feature = "tui")]
+mod app;
+#[cfg(feature = "tui")]
+mod input;
+#[cfg(feature = "tui")]
+pub mod ui;
 
 use clap::Parser;
-use crossterm::{
-    event::{self, Event, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
 
-use crate::app::AppState;
 use crate::cli::Cli;
 use crate::config::{Config, Provider as ConfigProvider};
-use crate::input::InputMode;
-use crate::provider::{create_provider};
-use crate::ui::{AudioView, ChatView, ConfigView, ImageView, Layout, View, AppTheme, AppLayout, compute_layout};
+use crate::provider::create_provider;
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
     if cli.command.is_some() {
         run_cli(cli).await
     } else {
-        run_tui().await
+        #[cfg(feature = "tui")]
+        {
+            run_tui().await
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            eprintln!("vox: no subcommand given. TUI is not enabled in this build.");
+            eprintln!("Run `vox --help` for available commands.");
+            std::process::exit(1);
+        }
     }
 }
 
-async fn run_cli(cli: Cli) -> io::Result<()> {
+async fn run_cli(cli: Cli) -> std::io::Result<()> {
     let mut config = Config::load().unwrap_or_default();
 
     let provider_name = cli.global.provider.to_lowercase();
@@ -229,6 +227,37 @@ fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+// ── TUI mode (only compiled with `--features tui`) ──────────────────────
+
+#[cfg(feature = "tui")]
+use std::{
+    io,
+    time::{Duration, Instant},
+};
+
+#[cfg(feature = "tui")]
+use crossterm::{
+    event::{self, Event, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+
+#[cfg(feature = "tui")]
+use ratatui::backend::CrosstermBackend;
+
+#[cfg(feature = "tui")]
+use ratatui::Terminal;
+
+#[cfg(feature = "tui")]
+use crate::app::AppState;
+
+#[cfg(feature = "tui")]
+use crate::input::InputMode;
+
+#[cfg(feature = "tui")]
+use crate::ui::{AudioView, ChatView, ConfigView, ImageView, Layout, View, AppTheme, AppLayout, compute_layout};
+
+#[cfg(feature = "tui")]
 async fn run_tui() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -247,6 +276,7 @@ async fn run_tui() -> io::Result<()> {
     result
 }
 
+#[cfg(feature = "tui")]
 async fn run_app(
     terminal: &mut Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     app: &mut AppState,

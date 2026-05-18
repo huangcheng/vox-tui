@@ -2,8 +2,12 @@
 name = "vox-tui"
 version = "0.1.0"
 edition = "2024"
-description = "Multi-Provider AI Multimedia TUI"
+description = "Multi-Provider AI Multimedia CLI"
 license = "MIT"
+
+[features]
+default = []
+tui = ["dep:ratatui", "dep:crossterm", "dep:ratatui-image", "dep:image"]
 
 [lib]
 name = "vox_tui"
@@ -17,11 +21,11 @@ path = "src/main.rs"
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 
-# TUI
-ratatui = "0.30"
-crossterm = "0.28"
-ratatui-image = { version = "10", default-features = false, features = ["image-defaults", "crossterm"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# TUI (optional)
+ratatui = { version = "0.30", optional = true }
+crossterm = { version = "0.28", optional = true }
+ratatui-image = { version = "10", default-features = false, features = ["image-defaults", "crossterm"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"], optional = true }
 
 # Async
 tokio = { version = "1", features = ["full"] }

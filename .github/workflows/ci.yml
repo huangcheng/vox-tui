@@ -18,11 +18,20 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: cargo check
+      - name: cargo check (default — CLI only)
         run: cargo check
+
+      - name: cargo check (with TUI feature)
+        run: cargo check --features tui
 
       - name: cargo test
         run: cargo test
 
-      - name: cargo clippy
+      - name: cargo test (with TUI feature)
+        run: cargo test --features tui
+
+      - name: cargo clippy (default)
         run: cargo clippy -- -D warnings
+
+      - name: cargo clippy (with TUI feature)
+        run: cargo clippy --features tui -- -D warnings

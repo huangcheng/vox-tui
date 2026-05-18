@@ -475,6 +475,7 @@ impl Config {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Represents the fields users can navigate and edit in the config view
+#[cfg(feature = "tui")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigField {
     ActiveProvider,
@@ -495,6 +496,7 @@ pub enum ConfigField {
     MiniMaxModelVision,
 }
 
+#[cfg(feature = "tui")]
 impl ConfigField {
     /// Build the field list based on what's available in config
     pub fn build_fields(config: &Config) -> Vec<ConfigField> {
@@ -625,6 +627,7 @@ impl ConfigField {
 // ConfigEditor — extracted from AppState for config navigation/editing
 // ═══════════════════════════════════════════════════════════════════
 
+#[cfg(feature = "tui")]
 #[derive(Debug)]
 pub struct ConfigEditor {
     pub selected: usize,
@@ -632,6 +635,7 @@ pub struct ConfigEditor {
     pub edit_buffer: String,
 }
 
+#[cfg(feature = "tui")]
 impl ConfigEditor {
     pub fn new() -> Self {
         Self {
@@ -960,6 +964,7 @@ impl ConfigEditor {
     }
 }
 
+#[cfg(feature = "tui")]
 impl Default for ConfigEditor {
     fn default() -> Self {
         Self::new()
@@ -1292,6 +1297,7 @@ api_key = "sk-backward-compat"
 
     // ConfigEditor tests
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_editor_new() {
         let editor = ConfigEditor::new();
@@ -1300,6 +1306,7 @@ api_key = "sk-backward-compat"
         assert!(editor.edit_buffer.is_empty());
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_editor_start_edit() {
         let mut editor = ConfigEditor::new();
@@ -1315,6 +1322,7 @@ api_key = "sk-backward-compat"
         assert_eq!(editor.edit_buffer, "sk-test-key");
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_editor_cancel_edit() {
         let mut editor = ConfigEditor::new();
@@ -1326,6 +1334,7 @@ api_key = "sk-backward-compat"
         assert!(editor.edit_buffer.is_empty());
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_editor_navigate() {
         let mut editor = ConfigEditor::new();
@@ -1337,6 +1346,7 @@ api_key = "sk-backward-compat"
         assert_eq!(editor.selected, 0);
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_editor_type_and_backspace() {
         let mut editor = ConfigEditor::new();
@@ -1351,6 +1361,7 @@ api_key = "sk-backward-compat"
         assert_eq!(editor.edit_buffer, "a");
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_editor_mask_api_key() {
         assert_eq!(ConfigEditor::mask_api_key(""), "(not set)");
@@ -1358,6 +1369,7 @@ api_key = "sk-backward-compat"
         assert_eq!(ConfigEditor::mask_api_key("abcdefgh"), "abcd***");
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_config_field_build_fields() {
         let config = Config::default_config();
@@ -1366,6 +1378,7 @@ api_key = "sk-backward-compat"
         assert!(fields.contains(&ConfigField::MiniMaxApiKey));
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_mask_key_multibyte_is_safe() {
         // Regression: byte-slicing on multi-byte UTF-8 would panic.
@@ -1374,6 +1387,7 @@ api_key = "sk-backward-compat"
         assert_eq!(ConfigEditor::mask_api_key("日本"), "日本***");
     }
 
+    #[cfg(feature = "tui")]
     #[test]
     fn test_cycle_field_active_provider_reverse() {
         // Regression: reverse direction was broken — it always returned the last index.
