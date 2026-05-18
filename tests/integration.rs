@@ -65,6 +65,7 @@ async fn test_stepfun_chat_success() {
         }),
         minimax: None,
         theme: None,
+        output_dir: None,
     };
 
     let provider = create_provider(&config).unwrap();
@@ -99,6 +100,7 @@ async fn test_stepfun_chat_error_5xx() {
         }),
         minimax: None,
         theme: None,
+        output_dir: None,
     };
 
     let provider = create_provider(&config).unwrap();
@@ -147,6 +149,7 @@ async fn test_minimax_chat_success() {
             models: ProviderModels::default(),
         }),
         theme: None,
+        output_dir: None,
     };
 
     let provider = create_provider(&config).unwrap();
@@ -194,6 +197,7 @@ async fn test_minimax_image_generation_success() {
             models: ProviderModels::default(),
         }),
         theme: None,
+        output_dir: None,
     };
 
     let provider = create_provider(&config).unwrap();

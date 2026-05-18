@@ -21,6 +21,14 @@ pub fn get_known_models(provider: &Provider, capability: &str) -> Option<KnownMo
     }
 }
 
+/// Get available model names as a Vec<String> for a provider/capability.
+/// Used by TUI for cycling through options.
+pub fn get_available_models(provider: &Provider, capability: &str) -> Vec<String> {
+    get_known_models(provider, capability)
+        .map(|km| km.models.iter().map(|s| s.to_string()).collect())
+        .unwrap_or_default()
+}
+
 fn minimax_models(capability: &str) -> Option<KnownModels> {
     match capability {
         "chat" => Some(KnownModels {

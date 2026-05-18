@@ -787,6 +787,7 @@ mod tests {
                 models: crate::config::ProviderModels::default(),
             }),
             theme: None,
+            output_dir: None,
         };
 
         app.handle_slash_command(SlashCommand::Provider { name: "minimax".to_string() });

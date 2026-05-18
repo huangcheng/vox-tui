@@ -13,19 +13,19 @@ pub struct Cli {
 
 #[derive(Args, Debug, Clone)]
 pub struct GlobalOpts {
-    #[arg(long, env = "MMX_PROVIDER", default_value = "minimax")]
+    #[arg(long, env = "VOX_PROVIDER", default_value = "minimax")]
     pub provider: String,
 
-    #[arg(long, env = "MMX_MODEL")]
+    #[arg(long, env = "VOX_MODEL")]
     pub model: Option<String>,
 
-    #[arg(long, env = "MMX_API_KEY")]
+    #[arg(long, env = "VOX_API_KEY")]
     pub api_key: Option<String>,
 
-    #[arg(long, env = "MMX_GROUP_ID")]
+    #[arg(long, env = "VOX_GROUP_ID")]
     pub group_id: Option<String>,
 
-    #[arg(long, env = "MMX_BASE_URL")]
+    #[arg(long, env = "VOX_BASE_URL")]
     pub base_url: Option<String>,
 }
 

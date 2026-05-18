@@ -18,49 +18,24 @@ default_provider = "minimax"
 
 [stepfun]
 base_url = "https://api.stepfun.com/v1"
-timeout = 120
 
-[stepfun.models.chat]
-default = "step-1-8k"
-available = ["step-1-8k", "step-1-32k", "step-1-128k", "step-1-flash", "step-2-16k", "step-2-32k"]
-
-[stepfun.models.image]
-default = "step-image-edit-2"
-available = ["step-image-edit-2"]
-
-[stepfun.models.speech]
-default = "step-tts-2"
-available = ["step-tts-2", "step-tts-mini", "stepaudio-2.5-tts"]
-
-[stepfun.models.video]
-default = "step-video"
-
-[stepfun.models.music]
-default = "step-music"
+[stepfun.models]
+chat = "step-1-8k"
+image = "step-image-edit-2"
+speech = "step-tts-2"
+vision = "step-1v-8k"
+search = "step-search"
 
 [minimax]
 base_url = "https://api.minimax.chat/v1"
-timeout = 120
 
-[minimax.models.chat]
-default = "MiniMax-Text-01"
-available = ["MiniMax-Text-01", "MiniMax-Text-01-Turbo"]
-
-[minimax.models.image]
-default = "image-01"
-
-[minimax.models.speech]
-default = "speech-01"
-available = ["speech-01", "speech-02-turbo"]
-
-[minimax.models.video]
-default = "video-01"
-
-[minimax.models.music]
-default = "music-01"
-
-[minimax.models.vision]
-default = "vision-01"
+[minimax.models]
+chat = "MiniMax-M2.7"
+image = "image-01"
+speech = "speech-01"
+video = "MiniMax-Hailuo-2.3"
+music = "music-2.6"
+vision = "vision-01"
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -80,44 +55,43 @@ impl std::fmt::Display for Provider {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CategoryModels {
-    pub default: Option<String>,
-    pub available: Option<Vec<String>>,
-}
-
+/// Flat model selection per capability.
+/// Config stores user CHOICES. Known model LISTS live in src/models.rs.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderModels {
-    pub chat: Option<CategoryModels>,
-    pub image: Option<CategoryModels>,
-    pub speech: Option<CategoryModels>,
-    pub video: Option<CategoryModels>,
-    pub music: Option<CategoryModels>,
-    pub vision: Option<CategoryModels>,
+    pub chat: Option<String>,
+    pub image: Option<String>,
+    pub speech: Option<String>,
+    pub video: Option<String>,
+    pub music: Option<String>,
+    pub vision: Option<String>,
+    pub search: Option<String>,
 }
 
 impl ProviderModels {
-    pub fn get(&self, category: &str) -> Option<&CategoryModels> {
+    pub fn get(&self, category: &str) -> Option<&str> {
         match category {
-            "chat" => self.chat.as_ref(),
-            "image" => self.image.as_ref(),
-            "speech" => self.speech.as_ref(),
-            "video" => self.video.as_ref(),
-            "music" => self.music.as_ref(),
-            "vision" => self.vision.as_ref(),
+            "chat" => self.chat.as_deref(),
+            "image" => self.image.as_deref(),
+            "speech" => self.speech.as_deref(),
+            "video" => self.video.as_deref(),
+            "music" => self.music.as_deref(),
+            "vision" => self.vision.as_deref(),
+            "search" => self.search.as_deref(),
             _ => None,
         }
     }
 
-    pub fn get_mut(&mut self, category: &str) -> Option<&mut CategoryModels> {
+    pub fn set(&mut self, category: &str, value: String) -> bool {
         match category {
-            "chat" => self.chat.as_mut(),
-            "image" => self.image.as_mut(),
-            "speech" => self.speech.as_mut(),
-            "video" => self.video.as_mut(),
-            "music" => self.music.as_mut(),
-            "vision" => self.vision.as_mut(),
-            _ => None,
+            "chat" => { self.chat = Some(value); true }
+            "image" => { self.image = Some(value); true }
+            "speech" => { self.speech = Some(value); true }
+            "video" => { self.video = Some(value); true }
+            "music" => { self.music = Some(value); true }
+            "vision" => { self.vision = Some(value); true }
+            "search" => { self.search = Some(value); true }
+            _ => false,
         }
     }
 }
@@ -173,6 +147,7 @@ pub struct Config {
     pub stepfun: Option<StepFunConfig>,
     pub minimax: Option<MiniMaxConfig>,
     pub theme: Option<ThemeConfig>,
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -188,6 +163,7 @@ impl Default for Config {
             stepfun: None,
             minimax: None,
             theme: None,
+            output_dir: None,
         }
     }
 }
@@ -243,10 +219,7 @@ impl Config {
     fn migrate(&mut self) {
         if let Some(ref mut sf) = self.stepfun {
             // Fix deprecated image model names
-            sf.models.image = Some(CategoryModels {
-                default: Some("step-image-edit-2".to_string()),
-                available: Some(vec!["step-image-edit-2".to_string()]),
-            });
+            sf.models.image = Some("step-image-edit-2".to_string());
             // Fix base_url missing /v1 suffix
             if let Some(ref url) = sf.base_url
                 && !url.ends_with("/v1")
@@ -255,32 +228,14 @@ impl Config {
             }
             // Fix deprecated chat model names
             if let Some(ref mut chat) = sf.models.chat {
-                if let Some(ref default) = chat.default
-                    && default.starts_with("step-1o-")
-                {
-                    chat.default = Some("step-1-8k".to_string());
-                }
-                if let Some(ref mut available) = chat.available {
-                    for m in available.iter_mut() {
-                        if m.starts_with("step-1o-") {
-                            *m = "step-1-8k".to_string();
-                        }
-                    }
+                if chat.starts_with("step-1o-") {
+                    *chat = "step-1-8k".to_string();
                 }
             }
             // Fix deprecated speech model names
             if let Some(ref mut speech) = sf.models.speech {
-                if let Some(ref default) = speech.default
-                    && default == "step-tts"
-                {
-                    speech.default = Some("step-tts-2".to_string());
-                }
-                if let Some(ref mut available) = speech.available {
-                    for m in available.iter_mut() {
-                        if m == "step-tts" {
-                            *m = "step-tts-2".to_string();
-                        }
-                    }
+                if speech == "step-tts" {
+                    *speech = "step-tts-2".to_string();
                 }
             }
         }
@@ -338,34 +293,25 @@ impl Config {
             Provider::StepFun => self.stepfun.as_ref().and_then(|sf| {
                 sf.models
                     .get(category)
-                    .and_then(|c| c.default.clone())
+                    .map(|s| s.to_string())
                     .or(sf.model.clone())
             }),
             Provider::MiniMax => self.minimax.as_ref().and_then(|mm| {
                 mm.models
                     .get(category)
-                    .and_then(|c| c.default.clone())
+                    .map(|s| s.to_string())
                     .or(mm.model.clone())
             }),
         }
     }
 
     /// Get available models for a category from the current provider
+    /// Note: With flat config, available lists are no longer stored in config.
+    /// Use models.rs for known model lists.
     pub fn get_available_models(&self, category: &str) -> Vec<String> {
-        match self.default_provider {
-            Provider::StepFun => self
-                .stepfun
-                .as_ref()
-                .and_then(|sf| sf.models.get(category))
-                .map(|c| c.available.clone().unwrap_or_default())
-                .unwrap_or_default(),
-            Provider::MiniMax => self
-                .minimax
-                .as_ref()
-                .and_then(|mm| mm.models.get(category))
-                .map(|c| c.available.clone().unwrap_or_default())
-                .unwrap_or_default(),
-        }
+        // Return empty — callers should use models.rs for available lists
+        let _ = category;
+        Vec::new()
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
@@ -504,22 +450,14 @@ impl ConfigField {
 
         // StepFun section
         fields.push(ConfigField::StepFunApiKey);
-        if let Some(ref sf) = config.stepfun {
-            for (cat, field) in Self::stepfun_model_fields() {
-                if sf.models.get(cat).is_some() {
-                    fields.push(field);
-                }
-            }
+        if config.stepfun.is_some() {
+            fields.extend(Self::stepfun_model_fields().iter().map(|(_, f)| *f));
         }
 
         // MiniMax section
         fields.push(ConfigField::MiniMaxApiKey);
-        if let Some(ref mm) = config.minimax {
-            for (cat, field) in Self::minimax_model_fields() {
-                if mm.models.get(cat).is_some() {
-                    fields.push(field);
-                }
-            }
+        if config.minimax.is_some() {
+            fields.extend(Self::minimax_model_fields().iter().map(|(_, f)| *f));
         }
 
         fields
@@ -739,15 +677,18 @@ impl ConfigEditor {
             _ => return,
         };
 
-        let models = match provider_field {
-            "stepfun" => config.stepfun.as_mut().map(|s| &mut s.models),
-            "minimax" => config.minimax.as_mut().map(|m| &mut m.models),
-            _ => None,
-        };
-        if let Some(models) = models
-            && let Some(cat_models) = models.get_mut(category)
-        {
-            cat_models.default = Some(self.edit_buffer.clone());
+        match provider_field {
+            "stepfun" => {
+                if let Some(ref mut sf) = config.stepfun {
+                    sf.models.set(category, self.edit_buffer.clone());
+                }
+            }
+            "minimax" => {
+                if let Some(ref mut mm) = config.minimax {
+                    mm.models.set(category, self.edit_buffer.clone());
+                }
+            }
+            _ => {}
         }
     }
 
@@ -800,22 +741,8 @@ impl ConfigEditor {
             None => return,
         };
 
-        let models: Vec<String> = match provider {
-            Provider::StepFun => {
-                config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .cloned()
-                    .unwrap_or_default()
-            }
-            Provider::MiniMax => {
-                config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .cloned()
-                    .unwrap_or_default()
-            }
-        };
+        // Get available models from models.rs (not from config)
+        let models = crate::models::get_available_models(&provider, category);
 
         if models.is_empty() {
             return;
@@ -825,14 +752,14 @@ impl ConfigEditor {
             Provider::StepFun => {
                 config.stepfun.as_ref()
                     .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.default.clone())
+                    .map(|s| s.to_string())
                     .or_else(|| config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
                     .unwrap_or_default()
             }
             Provider::MiniMax => {
                 config.minimax.as_ref()
                     .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.default.clone())
+                    .map(|s| s.to_string())
                     .or_else(|| config.minimax.as_ref().and_then(|mm| mm.model.clone()))
                     .unwrap_or_default()
             }
@@ -851,9 +778,7 @@ impl ConfigEditor {
         match provider {
             Provider::StepFun => {
                 if let Some(ref mut sf) = config.stepfun {
-                    if let Some(cm) = sf.models.get_mut(category) {
-                        cm.default = Some(new_model.clone());
-                    }
+                    sf.models.set(category, new_model.clone());
                     if category == "chat" {
                         sf.model = Some(new_model);
                     }
@@ -861,9 +786,7 @@ impl ConfigEditor {
             }
             Provider::MiniMax => {
                 if let Some(ref mut mm) = config.minimax {
-                    if let Some(cm) = mm.models.get_mut(category) {
-                        cm.default = Some(new_model.clone());
-                    }
+                    mm.models.set(category, new_model.clone());
                     if category == "chat" {
                         mm.model = Some(new_model);
                     }
@@ -911,14 +834,14 @@ impl ConfigEditor {
             Provider::StepFun => {
                 config.stepfun.as_ref()
                     .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.default.clone())
+                    .map(|s| s.to_string())
                     .or_else(|| config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
                     .unwrap_or_default()
             }
             Provider::MiniMax => {
                 config.minimax.as_ref()
                     .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.default.clone())
+                    .map(|s| s.to_string())
                     .or_else(|| config.minimax.as_ref().and_then(|mm| mm.model.clone()))
                     .unwrap_or_default()
             }
@@ -935,22 +858,8 @@ impl ConfigEditor {
             Some(c) => c,
             None => return 0,
         };
-        match provider {
-            Provider::StepFun => {
-                config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .map(|v| v.len())
-                    .unwrap_or(0)
-            }
-            Provider::MiniMax => {
-                config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.available.as_ref())
-                    .map(|v| v.len())
-                    .unwrap_or(0)
-            }
-        }
+        // Get count from models.rs since config no longer stores available lists
+        crate::models::get_available_models(&provider, category).len()
     }
 
     #[allow(dead_code)]
@@ -1027,6 +936,7 @@ mod tests {
             }),
             minimax: None,
             theme: None,
+            output_dir: None,
         }
     }
 
@@ -1043,6 +953,7 @@ mod tests {
             stepfun: None,
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         assert!(matches!(config.validate(), Err(ConfigError::MissingProviderConfig(_))));
     }
@@ -1059,6 +970,7 @@ mod tests {
             }),
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         assert!(matches!(config.validate(), Err(ConfigError::EmptyField("stepfun.api_key"))));
     }
@@ -1090,6 +1002,7 @@ mod tests {
                 models: ProviderModels::default(),
             }),
             theme: None,
+            output_dir: None,
         };
         let providers = config.configured_providers();
         assert_eq!(providers.len(), 2);
@@ -1109,6 +1022,7 @@ mod tests {
             }),
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         let providers = config.configured_providers();
         assert_eq!(providers.len(), 1);
@@ -1122,6 +1036,7 @@ mod tests {
             stepfun: None,
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         let providers = config.configured_providers();
         assert!(providers.is_empty());
@@ -1145,6 +1060,7 @@ mod tests {
                 models: ProviderModels::default(),
             }),
             theme: None,
+            output_dir: None,
         };
         assert!(config.has_provider(&Provider::StepFun));
         assert!(config.has_provider(&Provider::MiniMax));
@@ -1162,6 +1078,7 @@ mod tests {
             }),
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         assert_eq!(config.default_provider_name(), "stepfun");
     }
@@ -1201,6 +1118,7 @@ api_key = "sk-backward-compat"
                 accent_color: Some("#ff0000".to_string()),
                 dark_mode: Some(true),
             }),
+            output_dir: None,
         };
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
@@ -1230,6 +1148,7 @@ api_key = "sk-backward-compat"
             }),
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         config.merge(user);
         assert_eq!(config.default_provider, Provider::StepFun);
@@ -1245,9 +1164,15 @@ api_key = "sk-backward-compat"
 
     #[test]
     fn test_get_available_models() {
+        // With flat config, available lists are no longer stored in config.
+        // Config returns empty; use models.rs for known model lists.
         let config = Config::default_config();
         let models = config.get_available_models("chat");
-        assert!(!models.is_empty());
+        assert!(models.is_empty());
+
+        // Verify models.rs still provides available lists
+        let models_from_rs = crate::models::get_available_models(&Provider::MiniMax, "chat");
+        assert!(!models_from_rs.is_empty());
     }
 
     #[test]
@@ -1407,6 +1332,7 @@ api_key = "sk-backward-compat"
                 models: ProviderModels::default(),
             }),
             theme: None,
+            output_dir: None,
         };
         // Save the config path before mutating, since cycle_field tries to persist.
         let mut editor = ConfigEditor::new();

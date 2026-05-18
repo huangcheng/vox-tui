@@ -54,14 +54,14 @@ impl<'a> ConfigView<'a> {
             crate::config::Provider::StepFun => {
                 self.config.stepfun.as_ref()
                     .and_then(|sf| sf.models.get(category))
-                    .and_then(|cm| cm.default.clone())
+                    .map(|s| s.to_string())
                     .or_else(|| self.config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
                     .unwrap_or_default()
             }
             crate::config::Provider::MiniMax => {
                 self.config.minimax.as_ref()
                     .and_then(|mm| mm.models.get(category))
-                    .and_then(|cm| cm.default.clone())
+                    .map(|s| s.to_string())
                     .or_else(|| self.config.minimax.as_ref().and_then(|mm| mm.model.clone()))
                     .unwrap_or_default()
             }
@@ -249,22 +249,7 @@ impl<'a> ConfigView<'a> {
                 let provider = field.provider().unwrap();
                 let category = field.category().unwrap();
                 let current = self.get_current_model(&provider, category);
-                let available_count = match &provider {
-                    crate::config::Provider::StepFun => {
-                        self.config.stepfun.as_ref()
-                            .and_then(|sf| sf.models.get(category))
-                            .and_then(|cm| cm.available.as_ref())
-                            .map(|v| v.len())
-                            .unwrap_or(0)
-                    }
-                    crate::config::Provider::MiniMax => {
-                        self.config.minimax.as_ref()
-                            .and_then(|mm| mm.models.get(category))
-                            .and_then(|cm| cm.available.as_ref())
-                            .map(|v| v.len())
-                            .unwrap_or(0)
-                    }
-                };
+                let available_count = crate::models::get_available_models(&provider, category).len();
                 let arrows = if available_count > 1 { " ◀ ▶" } else { "" };
                 format!("{}{}: {}{}", prefix, field.label(), current, arrows)
             }

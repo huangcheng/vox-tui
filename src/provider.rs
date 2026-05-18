@@ -399,7 +399,7 @@ pub fn create_provider(config: &crate::config::Config) -> ProviderResult<Box<dyn
         ConfigProvider::StepFun => {
             let stepfun = config.stepfun.as_ref()
                 .ok_or_else(|| ProviderError::Config("StepFun config missing".into()))?;
-            let image_model = stepfun.models.image.as_ref().and_then(|m| m.default.as_deref());
+            let image_model = stepfun.models.image.as_deref();
             Box::new(StepFunProvider::with_config(
                 &stepfun.api_key,
                 stepfun.base_url.as_deref(),
@@ -476,6 +476,7 @@ mod tests {
             }),
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         let result = create_provider(&config);
         assert!(result.is_ok());
@@ -496,6 +497,7 @@ mod tests {
                 models: crate::config::ProviderModels::default(),
             }),
             theme: None,
+            output_dir: None,
         };
         let result = create_provider(&config);
         assert!(result.is_ok());
@@ -510,6 +512,7 @@ mod tests {
             stepfun: None,
             minimax: None,
             theme: None,
+            output_dir: None,
         };
         let result = create_provider(&config);
         assert!(result.is_err());
