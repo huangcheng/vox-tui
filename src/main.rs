@@ -962,10 +962,7 @@ fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>
 // ── TUI mode (only compiled with `--features tui`) ──────────────────────
 
 #[cfg(feature = "tui")]
-use std::{
-    io,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "tui")]
 use crossterm::{
