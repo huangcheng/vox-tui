@@ -1,5 +1,8 @@
+mod capabilities;
 mod config;
 pub mod minimax;
+mod models;
+mod output;
 pub mod provider;
 mod stepfun;
 pub mod cli;
