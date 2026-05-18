@@ -57,6 +57,11 @@ impl Output {
     pub fn deprecation(&self, msg: &str) {
         eprintln!("Warning: {msg}");
     }
+
+    /// Check if quiet mode is enabled.
+    pub fn is_quiet(&self) -> bool {
+        self.quiet
+    }
 }
 
 impl OutputFormat {

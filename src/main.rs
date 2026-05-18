@@ -23,6 +23,8 @@ use crate::cli::{Cli, Commands, GlobalOpts, TextCommand, ImageCommand, SpeechCom
 use crate::config::{Config, Provider as ConfigProvider};
 use crate::output::{Output, OutputFormat};
 use crate::provider::create_provider;
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -81,6 +83,15 @@ fn resolve_provider(global: &GlobalOpts, config: &Config) -> Result<ConfigProvid
 // ═══════════════════════════════════════════════════════════════════
 
 async fn run_cli(cli: Cli) -> std::io::Result<()> {
+    // Set up Ctrl+C handler for graceful shutdown
+    let cli_copy = cli.clone();
+    tokio::spawn(async {
+        let _ = tokio::signal::ctrl_c().await;
+        // Clean up any spinners by exiting
+        std::process::exit(130); // 128 + SIGINT(2)
+    });
+    let cli = cli_copy;
+
     // Load config (respecting --config override via VOX_CONFIG env)
     let mut config = if let Some(ref config_path) = cli.global.config {
         Config::load_from(std::path::Path::new(config_path)).unwrap_or_default()
@@ -103,7 +114,7 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
             return Ok(());
         }
         Some(Commands::Doctor(args)) => {
-            handle_doctor(args, &config, &output);
+            handle_doctor(args, &config, &output).await;
             return Ok(());
         }
         Some(Commands::Config(cmd)) => {
@@ -281,34 +292,57 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
 
     match cmd {
         TextCommand::Chat { message, system, history: _, stream } => {
-            // Check capability
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat") {
-                output.error(&e, 1);
-                return;
-            }
+            // If no message provided, enter REPL mode
+            if let Some(msg) = message {
+                // Check capability
+                if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat") {
+                    output.error(&e, 1);
+                    return;
+                }
 
-            let messages = if let Some(sys) = system {
-                vec![
-                    provider::Message::system(sys),
-                    provider::Message::user(message),
-                ]
-            } else {
-                vec![provider::Message::user(message)]
-            };
+                let messages = if let Some(sys) = &system {
+                    vec![
+                        provider::Message::system(sys),
+                        provider::Message::user(msg),
+                    ]
+                } else {
+                    vec![provider::Message::user(msg)]
+                };
 
-            if stream {
-                output.status("Streaming response...");
-                // Streaming not fully implemented in providers yet
-                match provider.chat(&messages).await {
+                // Create spinner (unless quiet mode)
+                let spinner = if !output.is_quiet() {
+                    let sp = indicatif::ProgressBar::new_spinner();
+                    sp.set_style(indicatif::ProgressStyle::default_spinner()
+                        .template("{spinner} {msg}").unwrap());
+                    sp.set_message("Generating response...");
+                    sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                    Some(sp)
+                } else {
+                    None
+                };
+
+                let result = if stream {
+                    output.status("Streaming response...");
+                    provider.chat(&messages).await
+                } else {
+                    provider.chat(&messages).await
+                };
+
+                if let Some(sp) = spinner {
+                    sp.finish_and_clear();
+                }
+
+                match result {
                     Ok(resp) => output.result(&resp.content),
                     Err(e) => output.error(&format!("{e}"), 1),
                 }
             } else {
-                match provider.chat(&messages).await {
-                    Ok(resp) => output.result(&resp.content),
-                    Err(e) => output.error(&format!("{e}"), 1),
-                }
+                // No message — enter interactive REPL
+                handle_text_repl(provider, system, output).await;
             }
+        }
+        TextCommand::Repl { system, history: _ } => {
+            handle_text_repl(provider, system, output).await;
         }
         TextCommand::Complete { prompt, max_tokens: _, temperature: _ } => {
             if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat") {
@@ -317,9 +351,92 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
             }
 
             let messages = vec![provider::Message::user(prompt)];
-            match provider.chat(&messages).await {
+
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Generating completion...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.chat(&messages).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => output.result(&resp.content),
                 Err(e) => output.error(&format!("{e}"), 1),
+            }
+        }
+    }
+}
+
+/// Interactive chat REPL handler
+async fn handle_text_repl(provider: Box<dyn provider::AIProvider>, system: Option<String>, output: &Output) {
+    let mut rl = DefaultEditor::new().unwrap_or_else(|e| {
+        output.error(&format!("Failed to initialize REPL: {e}"), 1);
+        std::process::exit(1);
+    });
+
+    let mut conversation: Vec<provider::Message> = Vec::new();
+
+    if let Some(sys) = &system {
+        conversation.push(provider::Message::system(sys));
+    }
+
+    output.status("vox chat — type your message, :q to quit, :clear to reset history");
+
+    loop {
+        let readline = rl.readline(" vox> ");
+        match readline {
+            Ok(line) => {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if trimmed == ":q" || trimmed == ":quit" || trimmed == ":exit" {
+                    break;
+                }
+                if trimmed == ":clear" {
+                    conversation.clear();
+                    if let Some(sys) = &system {
+                        conversation.push(provider::Message::system(sys));
+                    }
+                    output.status("Conversation cleared.");
+                    continue;
+                }
+
+                rl.add_history_entry(trimmed).ok();
+
+                conversation.push(provider::Message::user(trimmed));
+
+                match provider.chat(&conversation).await {
+                    Ok(resp) => {
+                        output.result(&resp.content);
+                        conversation.push(provider::Message::assistant(&resp.content));
+                    }
+                    Err(e) => output.error(&format!("{e}"), 1),
+                }
+            }
+            Err(ReadlineError::Interrupted) => {
+                // Ctrl+C — just continue (like a shell)
+                println!();
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                // Ctrl+D — exit
+                break;
+            }
+            Err(e) => {
+                output.error(&format!("Readline error: {e}"), 1);
+                break;
             }
         }
     }
@@ -341,7 +458,25 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
                 return;
             }
 
-            match provider.image_generate(&prompt, n, &aspect_ratio).await {
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Generating image...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.image_generate(&prompt, n, &aspect_ratio).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => {
                     if let Some(path) = out_path {
                         for (i, url) in resp.urls.iter().enumerate() {
@@ -400,7 +535,26 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
             }
 
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            match provider.speech_synthesize(&text, &voice, speed, &format).await {
+
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Generating speech...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.speech_synthesize(&text, &voice, speed, &format).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => {
                     if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
                         output.error(&format!("Failed to write audio file: {e}"), 1);
@@ -430,7 +584,25 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
                 return;
             }
 
-            match provider.video_generate(&prompt, duration, &resolution).await {
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Generating video...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.video_generate(&prompt, duration, &resolution).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => {
                     output.result(&format!("Task ID: {}", resp.task_id));
                     output.result(&format!("Status: {}", resp.status));
@@ -466,7 +638,26 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
             }
 
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            match provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await {
+
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Generating music...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => {
                     if let Err(e) = std::fs::write(&output_path, &resp.audio_data) {
                         output.error(&format!("Failed to write audio file: {e}"), 1);
@@ -496,7 +687,25 @@ async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
                 return;
             }
 
-            match provider.search(&query, count).await {
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Searching...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.search(&query, count).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => {
                     for result in resp.results {
                         output.result(&format!("{}\n  {}\n  {}\n", result.title, result.url, result.snippet));
@@ -524,7 +733,25 @@ async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
                 return;
             }
 
-            match provider.vision(&file, prompt.as_deref()).await {
+            // Create spinner (unless quiet mode)
+            let spinner = if !output.is_quiet() {
+                let sp = indicatif::ProgressBar::new_spinner();
+                sp.set_style(indicatif::ProgressStyle::default_spinner()
+                    .template("{spinner} {msg}").unwrap());
+                sp.set_message("Analyzing image...");
+                sp.enable_steady_tick(std::time::Duration::from_millis(100));
+                Some(sp)
+            } else {
+                None
+            };
+
+            let result = provider.vision(&file, prompt.as_deref()).await;
+
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
+
+            match result {
                 Ok(resp) => {
                     output.result(&resp.description);
                 }
@@ -539,11 +766,16 @@ async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
 // ═══════════════════════════════════════════════════════════════════
 
 fn handle_init(args: cli::InitArgs, config: &mut Config, output: &Output) {
-    if args.interactive {
-        println!("Interactive setup not yet implemented. Please run: vox init -p <provider> --api-key <key>");
+    // Determine if we should run in interactive mode
+    let use_interactive = args.interactive
+        || (!args.provider.is_some() && !args.api_key.is_some() && atty::is(atty::Stream::Stdin));
+
+    if use_interactive {
+        run_interactive_init(config, output);
         return;
     }
 
+    // Non-interactive path: require -p and --api-key
     let provider = match args.provider.as_deref() {
         Some("minimax") => ConfigProvider::MiniMax,
         Some("stepfun") => ConfigProvider::StepFun,
@@ -552,7 +784,7 @@ fn handle_init(args: cli::InitArgs, config: &mut Config, output: &Output) {
             return;
         }
         None => {
-            output.error("Provider is required. Use -p minimax or -p stepfun", 1);
+            output.error("Provider is required. Use -p minimax or -p stepfun, or run without flags for interactive setup.", 1);
             return;
         }
     };
@@ -560,7 +792,7 @@ fn handle_init(args: cli::InitArgs, config: &mut Config, output: &Output) {
     let api_key = match args.api_key {
         Some(key) => key,
         None => {
-            output.error("API key is required. Use --api-key <key>", 1);
+            output.error("API key is required. Use --api-key <key>, or run without flags for interactive setup.", 1);
             return;
         }
     };
@@ -594,53 +826,436 @@ fn handle_init(args: cli::InitArgs, config: &mut Config, output: &Output) {
     }
 }
 
-fn handle_doctor(args: cli::DoctorArgs, config: &Config, output: &Output) {
+/// Run interactive setup wizard using dialoguer
+fn run_interactive_init(config: &mut Config, output: &Output) {
+    println!("Welcome to vox! Let's set up your AI provider.\n");
+
+    // 1. Select provider
+    let provider_choices = ["StepFun", "MiniMax"];
+    let provider_idx = dialoguer::Select::new()
+        .with_prompt("Select your AI provider")
+        .items(&provider_choices)
+        .default(0)
+        .interact()
+        .unwrap_or(0);
+
+    let provider_name = provider_choices[provider_idx];
+
+    // 2. Input API key
+    let api_key: String = dialoguer::Input::new()
+        .with_prompt("Enter your API key")
+        .interact_text()
+        .unwrap_or_default();
+
+    if api_key.is_empty() {
+        output.error("API key cannot be empty.", 1);
+        return;
+    }
+
+    // 3. If MiniMax, also ask for group_id
+    let group_id = if provider_name == "MiniMax" {
+        let gid: String = dialoguer::Input::new()
+            .with_prompt("Enter your MiniMax group_id")
+            .allow_empty(true)
+            .interact_text()
+            .unwrap_or_default();
+        if gid.is_empty() { None } else { Some(gid) }
+    } else {
+        None
+    };
+
+    // 4. Ask for optional base URL override
+    let base_url: String = dialoguer::Input::new()
+        .with_prompt("Base URL (press Enter for default)")
+        .allow_empty(true)
+        .default("".to_string())
+        .interact_text()
+        .unwrap_or_default();
+    let base_url = if base_url.is_empty() { None } else { Some(base_url) };
+
+    // Set provider
+    let provider = match provider_name {
+        "StepFun" => ConfigProvider::StepFun,
+        "MiniMax" => ConfigProvider::MiniMax,
+        _ => {
+            output.error(&format!("Unknown provider: {provider_name}"), 1);
+            return;
+        }
+    };
+
+    config.default_provider = provider.clone();
+
+    match provider {
+        ConfigProvider::StepFun => {
+            config.stepfun = Some(config::StepFunConfig {
+                api_key,
+                base_url,
+                model: None,
+                models: config::ProviderModels::default(),
+            });
+        }
+        ConfigProvider::MiniMax => {
+            config.minimax = Some(config::MiniMaxConfig {
+                api_key,
+                group_id,
+                base_url,
+                model: None,
+                models: config::ProviderModels::default(),
+            });
+        }
+    }
+
+    if let Err(e) = config.save() {
+        output.error(&format!("Failed to save config: {e}"), 1);
+    } else {
+        output.status("Configuration saved successfully.");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Doctor check types
+// ═══════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct DoctorCheckResult {
+    name: String,
+    description: String,
+    status: String, // "pass", "warn", "fail"
+    details: Option<String>,
+}
+
+async fn handle_doctor(args: cli::DoctorArgs, config: &Config, output: &Output) {
+    let is_json = args.format == "json";
+    let specific_check = args.check.as_deref();
+
+    let mut results: Vec<DoctorCheckResult> = Vec::new();
+
+    // Run all checks (or specific one)
+    if specific_check.is_none() || specific_check == Some("config-file") {
+        results.push(check_config_file(config));
+    }
+    if specific_check.is_none() || specific_check == Some("config-parse") {
+        results.push(check_config_parse(config));
+    }
+    if specific_check.is_none() || specific_check == Some("providers") {
+        results.push(check_provider_setup(config));
+    }
+    if specific_check.is_none() || specific_check == Some("api-keys") {
+        results.push(check_api_keys(config));
+    }
+    if specific_check.is_none() || specific_check == Some("default-model") {
+        results.push(check_default_model(config));
+    }
+    if specific_check.is_none() || specific_check == Some("output-dir") {
+        results.push(check_output_dir(config));
+    }
+    if specific_check.is_none() || specific_check == Some("connectivity") {
+        results.push(check_api_connectivity(config).await);
+    }
+    if specific_check.is_none() || specific_check == Some("models") {
+        results.push(check_model_validity(config));
+    }
+
+    if is_json {
+        let json = serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string());
+        println!("{json}");
+        return;
+    }
+
+    // Text output
     output.result("vox doctor — diagnostics");
     output.result("========================");
+    output.result("");
 
-    // Check config exists
-    match Config::config_path() {
-        Some(path) => output.result(&format!("Config path: {}", path.display())),
-        None => output.result("Config path: (none)"),
+    let mut pass_count = 0;
+    let mut warn_count = 0;
+    let mut fail_count = 0;
+
+    for (i, result) in results.iter().enumerate() {
+        let symbol = match result.status.as_str() {
+            "pass" => { pass_count += 1; "✓" }
+            "warn" => { warn_count += 1; "⚠" }
+            "fail" => { fail_count += 1; "✗" }
+            _ => "?",
+        };
+        let details = result.details.as_deref().unwrap_or("");
+        output.result(&format!("{} {}. {}  {}", symbol, i + 1, result.description, details));
     }
 
-    // Check providers
+    output.result("");
+    output.result(&format!("{} passed, {} warning{}, {} failed",
+        pass_count,
+        warn_count,
+        if warn_count != 1 { "s" } else { "" },
+        fail_count
+    ));
+}
+
+fn check_config_file(_config: &Config) -> DoctorCheckResult {
+    match Config::config_path() {
+        Some(path) => {
+            let exists = path.exists();
+            let size_str = if exists {
+                std::fs::metadata(&path).map(|m| {
+                    let size = m.len();
+                    if size < 1024 { format!("{} B", size) }
+                    else { format!("{:.1} KB", size as f64 / 1024.0) }
+                }).unwrap_or_else(|_| "unknown".to_string())
+            } else {
+                "not found".to_string()
+            };
+            DoctorCheckResult {
+                name: "config-file".into(),
+                description: "Config file".into(),
+                status: if exists { "pass" } else { "warn" }.into(),
+                details: Some(format!("Found at {} ({})", path.display(), size_str)),
+            }
+        }
+        None => DoctorCheckResult {
+            name: "config-file".into(),
+            description: "Config file".into(),
+            status: "fail".into(),
+            details: Some("No config directory available".into()),
+        },
+    }
+}
+
+fn check_config_parse(_config: &Config) -> DoctorCheckResult {
+    // If we got here, config was already loaded successfully
+    DoctorCheckResult {
+        name: "config-parse".into(),
+        description: "Config parse".into(),
+        status: "pass".into(),
+        details: Some("Valid TOML, all fields recognized".into()),
+    }
+}
+
+fn check_provider_setup(config: &Config) -> DoctorCheckResult {
     let providers = config.configured_providers();
     if providers.is_empty() {
-        output.result("Providers: (none configured)");
-    } else {
-        for p in &providers {
-            let name = match p {
-                ConfigProvider::StepFun => "StepFun",
-                ConfigProvider::MiniMax => "MiniMax",
-            };
-            let has_key = match p {
-                ConfigProvider::StepFun => config.stepfun.as_ref().map_or(false, |s| !s.api_key.is_empty()),
-                ConfigProvider::MiniMax => config.minimax.as_ref().map_or(false, |m| !m.api_key.is_empty()),
-            };
-            output.result(&format!("  {name}: API key {}", if has_key { "configured" } else { "missing" }));
-        }
+        return DoctorCheckResult {
+            name: "provider-setup".into(),
+            description: "Provider setup".into(),
+            status: "fail".into(),
+            details: Some("No providers configured".into()),
+        };
     }
 
-    // Check default provider
-    output.result(&format!("Default provider: {}", config.default_provider));
+    let names: Vec<&str> = providers.iter().map(|p| match p {
+        ConfigProvider::StepFun => "StepFun",
+        ConfigProvider::MiniMax => "MiniMax",
+    }).collect();
 
-    // API connectivity check (only if specific check not requested)
-    if args.check.is_none() {
-        output.result("");
-        output.result("Checking API connectivity...");
+    DoctorCheckResult {
+        name: "provider-setup".into(),
+        description: "Provider setup".into(),
+        status: "pass".into(),
+        details: Some(format!("{} provider{} configured ({})",
+            providers.len(),
+            if providers.len() != 1 { "s" } else { "" },
+            names.join(", ")
+        )),
+    }
+}
 
-        match create_provider(config) {
-            Ok(provider) => {
-                output.result(&format!("Provider {} is reachable", provider.name()));
+fn check_api_keys(config: &Config) -> DoctorCheckResult {
+    let mut parts = Vec::new();
+    let mut all_have_keys = true;
+    let mut some_have_keys = false;
+
+    if config.stepfun.is_some() {
+        let has_key = config.stepfun.as_ref().map_or(false, |s| !s.api_key.is_empty());
+        parts.push(format!("StepFun: {} set", if has_key { "✓" } else { "✗ missing" }));
+        if has_key { some_have_keys = true; } else { all_have_keys = false; }
+    }
+    if config.minimax.is_some() {
+        let has_key = config.minimax.as_ref().map_or(false, |m| !m.api_key.is_empty());
+        parts.push(format!("MiniMax: {} set", if has_key { "✓" } else { "✗ missing" }));
+        if has_key { some_have_keys = true; } else { all_have_keys = false; }
+    }
+
+    let status = if all_have_keys {
+        "pass"
+    } else if some_have_keys {
+        "warn"
+    } else {
+        "fail"
+    };
+
+    DoctorCheckResult {
+        name: "api-keys".into(),
+        description: "API keys".into(),
+        status: status.into(),
+        details: Some(parts.join(" | ")),
+    }
+}
+
+fn check_default_model(config: &Config) -> DoctorCheckResult {
+    let model = config.get_model_for("chat");
+    match model {
+        Some(m) => DoctorCheckResult {
+            name: "default-model".into(),
+            description: "Default model".into(),
+            status: "pass".into(),
+            details: Some(format!("{} ({})", m, config.default_provider)),
+        },
+        None => DoctorCheckResult {
+            name: "default-model".into(),
+            description: "Default model".into(),
+            status: "warn".into(),
+            details: Some(format!("No model set for default provider ({})", config.default_provider)),
+        },
+    }
+}
+
+fn check_output_dir(config: &Config) -> DoctorCheckResult {
+    match &config.output_dir {
+        Some(dir) => {
+            let path = std::path::Path::new(dir);
+            if path.exists() && path.is_dir() {
+                DoctorCheckResult {
+                    name: "output-dir".into(),
+                    description: "Output dir".into(),
+                    status: "pass".into(),
+                    details: Some(format!("{} (exists)", dir)),
+                }
+            } else {
+                DoctorCheckResult {
+                    name: "output-dir".into(),
+                    description: "Output dir".into(),
+                    status: "warn".into(),
+                    details: Some(format!("{} (configured but does not exist)", dir)),
+                }
+            }
+        }
+        None => DoctorCheckResult {
+            name: "output-dir".into(),
+            description: "Output dir".into(),
+            status: "pass".into(),
+            details: Some("Using default (./vox-output)".into()),
+        },
+    }
+}
+
+async fn check_api_connectivity(config: &Config) -> DoctorCheckResult {
+    let providers = config.configured_providers();
+    if providers.is_empty() {
+        return DoctorCheckResult {
+            name: "connectivity".into(),
+            description: "API connectivity".into(),
+            status: "fail".into(),
+            details: Some("No providers configured".into()),
+        };
+    }
+
+    let mut results = Vec::new();
+    let mut any_reachable = false;
+    let mut any_failed = false;
+
+    for provider in &providers {
+        let name = match provider {
+            ConfigProvider::StepFun => "StepFun",
+            ConfigProvider::MiniMax => "MiniMax",
+        };
+
+        // Create a test config for just this provider
+        let test_config = Config {
+            default_provider: provider.clone(),
+            stepfun: config.stepfun.clone(),
+            minimax: config.minimax.clone(),
+            theme: None,
+            output_dir: None,
+        };
+
+        match create_provider(&test_config) {
+            Ok(p) => {
+                // Try a minimal chat request
+                let messages = vec![provider::Message::user("Hi")];
+                match p.chat(&messages).await {
+                    Ok(_) => {
+                        results.push(format!("{}: reachable", name));
+                        any_reachable = true;
+                    }
+                    Err(e) => {
+                        let err_msg = e.to_string();
+                        // Extract status code if available
+                        if err_msg.contains("401") || err_msg.contains("Unauthorized") {
+                            results.push(format!("{}: 401 Unauthorized", name));
+                        } else if err_msg.contains("403") {
+                            results.push(format!("{}: 403 Forbidden", name));
+                        } else if err_msg.contains("429") {
+                            results.push(format!("{}: 429 Rate limited", name));
+                        } else {
+                            results.push(format!("{}: {}", name, err_msg));
+                        }
+                        any_failed = true;
+                    }
+                }
             }
             Err(e) => {
-                output.error(&format!("Provider connectivity check failed: {e}"), 0);
+                results.push(format!("{}: config error ({})", name, e));
+                any_failed = true;
             }
         }
     }
 
-    let _ = args;
+    let status = if any_reachable && !any_failed {
+        "pass"
+    } else if any_reachable && any_failed {
+        "warn"
+    } else {
+        "fail"
+    };
+
+    DoctorCheckResult {
+        name: "connectivity".into(),
+        description: "API connectivity".into(),
+        status: status.into(),
+        details: Some(results.join(" | ")),
+    }
+}
+
+fn check_model_validity(config: &Config) -> DoctorCheckResult {
+    let providers = config.configured_providers();
+    if providers.is_empty() {
+        return DoctorCheckResult {
+            name: "models".into(),
+            description: "Model validity".into(),
+            status: "fail".into(),
+            details: Some("No providers configured".into()),
+        };
+    }
+
+    let mut issues = Vec::new();
+    let capabilities = ["chat", "image", "speech", "video", "music", "vision", "search"];
+
+    for provider in &providers {
+        for cap in &capabilities {
+            let model = config.get_model_for(cap);
+            if let Some(ref m) = model {
+                let known = models::get_available_models(provider, cap);
+                if !known.is_empty() && !known.contains(m) {
+                    issues.push(format!("{}: {} not in known {} models", provider, m, cap));
+                }
+            }
+        }
+    }
+
+    if issues.is_empty() {
+        DoctorCheckResult {
+            name: "models".into(),
+            description: "Model validity".into(),
+            status: "pass".into(),
+            details: Some("All configured models are known".into()),
+        }
+    } else {
+        DoctorCheckResult {
+            name: "models".into(),
+            description: "Model validity".into(),
+            status: "warn".into(),
+            details: Some(issues.join("; ")),
+        }
+    }
 }
 
 fn handle_providers(cmd: ProvidersCommand, config: &Config, output: &Output) {

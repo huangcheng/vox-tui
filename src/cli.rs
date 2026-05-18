@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
 /// Multi-provider AI multimedia CLI & TUI
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "vox", version, about)]
 pub struct Cli {
     #[command(flatten)]
@@ -142,9 +142,9 @@ pub enum Commands {
 pub enum TextCommand {
     /// Chat with an AI assistant
     Chat {
-        /// The message to send
+        /// The message to send (if omitted, enters interactive REPL)
         #[arg(short = 'm', long)]
-        message: String,
+        message: Option<String>,
 
         /// System prompt
         #[arg(long)]
@@ -157,6 +157,16 @@ pub enum TextCommand {
         /// Stream the response
         #[arg(long, default_value_t = false)]
         stream: bool,
+    },
+    /// Start an interactive chat session
+    Repl {
+        /// System prompt
+        #[arg(long)]
+        system: Option<String>,
+
+        /// Conversation history file (JSON)
+        #[arg(long)]
+        history: Option<String>,
     },
     /// Complete text from a prompt
     Complete {
@@ -539,12 +549,47 @@ mod tests {
         ]).unwrap();
         match cli.command {
             Some(Commands::Text(TextCommand::Chat { message, system, history, stream })) => {
-                assert_eq!(message, "hello world");
+                assert_eq!(message, Some("hello world".to_string()));
                 assert!(system.is_none());
                 assert!(history.is_none());
                 assert!(!stream);
             }
             _ => panic!("Expected Text Chat command"),
+        }
+    }
+
+    #[test]
+    fn test_text_chat_repl() {
+        let cli = Cli::try_parse_from(["vox", "text", "chat"]).unwrap();
+        match cli.command {
+            Some(Commands::Text(TextCommand::Chat { message, .. })) => {
+                assert!(message.is_none());
+            }
+            _ => panic!("Expected Text Chat command"),
+        }
+    }
+
+    #[test]
+    fn test_text_repl() {
+        let cli = Cli::try_parse_from(["vox", "text", "repl"]).unwrap();
+        match cli.command {
+            Some(Commands::Text(TextCommand::Repl { system, history })) => {
+                assert!(system.is_none());
+                assert!(history.is_none());
+            }
+            _ => panic!("Expected Text Repl command"),
+        }
+    }
+
+    #[test]
+    fn test_text_repl_with_system() {
+        let cli = Cli::try_parse_from(["vox", "text", "repl", "--system", "You are a helpful assistant"]).unwrap();
+        match cli.command {
+            Some(Commands::Text(TextCommand::Repl { system, history })) => {
+                assert_eq!(system, Some("You are a helpful assistant".to_string()));
+                assert!(history.is_none());
+            }
+            _ => panic!("Expected Text Repl command"),
         }
     }
 
