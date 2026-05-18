@@ -21,16 +21,16 @@ base_url = "https://api.stepfun.com/v1"
 timeout = 120
 
 [stepfun.models.chat]
-default = "step-1o-pro-20250506"
-available = ["step-1o-pro-20250506", "step-1o-mini"]
+default = "step-1-8k"
+available = ["step-1-8k", "step-1-32k", "step-1-128k", "step-1-flash", "step-2-16k", "step-2-32k"]
 
 [stepfun.models.image]
-default = "step-1x-high"
-available = ["step-1x-high", "step-1x-medium"]
+default = "step-image-edit-2"
+available = ["step-image-edit-2"]
 
 [stepfun.models.speech]
-default = "step-tts"
-available = ["step-tts", "step-tts-mini"]
+default = "step-tts-2"
+available = ["step-tts-2", "step-tts-mini", "stepaudio-2.5-tts"]
 
 [stepfun.models.video]
 default = "step-video"
@@ -227,15 +227,63 @@ impl Config {
         let mut config = Self::default_config();
         config.merge(user_config);
 
+        config.migrate();
         config.validate()?;
         Ok(config)
     }
 
     pub fn load_from(path: &Path) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path).map_err(ConfigError::Io)?;
-        let config: Config = toml::from_str(&content).map_err(ConfigError::Parse)?;
+        let mut config: Config = toml::from_str(&content).map_err(ConfigError::Parse)?;
+        config.migrate();
         config.validate()?;
         Ok(config)
+    }
+
+    fn migrate(&mut self) {
+        if let Some(ref mut sf) = self.stepfun {
+            // Fix deprecated image model names
+            sf.models.image = Some(CategoryModels {
+                default: Some("step-image-edit-2".to_string()),
+                available: Some(vec!["step-image-edit-2".to_string()]),
+            });
+            // Fix base_url missing /v1 suffix
+            if let Some(ref url) = sf.base_url
+                && !url.ends_with("/v1")
+            {
+                sf.base_url = Some(format!("{}/v1", url.trim_end_matches('/')));
+            }
+            // Fix deprecated chat model names
+            if let Some(ref mut chat) = sf.models.chat {
+                if let Some(ref default) = chat.default
+                    && default.starts_with("step-1o-")
+                {
+                    chat.default = Some("step-1-8k".to_string());
+                }
+                if let Some(ref mut available) = chat.available {
+                    for m in available.iter_mut() {
+                        if m.starts_with("step-1o-") {
+                            *m = "step-1-8k".to_string();
+                        }
+                    }
+                }
+            }
+            // Fix deprecated speech model names
+            if let Some(ref mut speech) = sf.models.speech {
+                if let Some(ref default) = speech.default
+                    && default == "step-tts"
+                {
+                    speech.default = Some("step-tts-2".to_string());
+                }
+                if let Some(ref mut available) = speech.available {
+                    for m in available.iter_mut() {
+                        if m == "step-tts" {
+                            *m = "step-tts-2".to_string();
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Merge user config over self (user values take precedence)
@@ -335,7 +383,53 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        // Check that at least one provider is configured
+        if self.stepfun.is_none() && self.minimax.is_none() {
+            return Err(ConfigError::MissingProviderConfig("No provider configured"));
+        }
+
+        // Check that default provider has an API key
+        match self.default_provider {
+            Provider::StepFun => {
+                if let Some(ref sf) = self.stepfun {
+                    if sf.api_key.is_empty() {
+                        return Err(ConfigError::EmptyField("stepfun.api_key"));
+                    }
+                } else {
+                    return Err(ConfigError::MissingProviderConfig("stepfun"));
+                }
+            }
+            Provider::MiniMax => {
+                if let Some(ref mm) = self.minimax {
+                    if mm.api_key.is_empty() {
+                        return Err(ConfigError::EmptyField("minimax.api_key"));
+                    }
+                } else {
+                    return Err(ConfigError::MissingProviderConfig("minimax"));
+                }
+            }
+        }
+
+        // Validate theme accent color if provided
+        if let Some(ref theme) = self.theme
+            && let Some(ref color) = theme.accent_color
+            && !Self::is_valid_color(color)
+        {
+            return Err(ConfigError::InvalidValue("theme.accent_color", color.clone()));
+        }
+
         Ok(())
+    }
+
+    fn is_valid_color(color: &str) -> bool {
+        let lower = color.trim().to_lowercase();
+        if let Some(hex) = lower.strip_prefix('#') {
+            return hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit());
+        }
+        matches!(
+            lower.as_str(),
+            "cyan" | "green" | "blue" | "magenta" | "red" | "yellow" | "white"
+        )
     }
 
     pub fn configured_providers(&self) -> Vec<Provider> {
@@ -799,6 +893,7 @@ impl ConfigEditor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_current_model(&self, config: &Config, field: ConfigField) -> String {
         let provider = match field.provider() {
             Some(p) => p,
@@ -826,6 +921,7 @@ impl ConfigEditor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_available_count(&self, config: &Config, field: ConfigField) -> usize {
         let provider = match field.provider() {
             Some(p) => p,
@@ -853,6 +949,7 @@ impl ConfigEditor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn mask_api_key(key: &str) -> String {
         if key.is_empty() {
             "(not set)".to_string()
@@ -881,6 +978,7 @@ pub enum ConfigError {
     Serialize(toml::ser::Error),
     MissingProviderConfig(&'static str),
     EmptyField(&'static str),
+    InvalidValue(&'static str, String),
 }
 
 impl std::fmt::Display for ConfigError {
@@ -895,6 +993,9 @@ impl std::fmt::Display for ConfigError {
             }
             ConfigError::EmptyField(field) => {
                 write!(f, "Empty required field: {}", field)
+            }
+            ConfigError::InvalidValue(field, val) => {
+                write!(f, "Invalid value for {}: {}", field, val)
             }
         }
     }
@@ -931,18 +1032,18 @@ mod tests {
     }
 
     #[test]
-    fn test_config_validation_lenient() {
+    fn test_config_validation_missing_provider() {
         let config = Config {
             default_provider: Provider::StepFun,
             stepfun: None,
             minimax: None,
             theme: None,
         };
-        assert!(config.validate().is_ok());
+        assert!(matches!(config.validate(), Err(ConfigError::MissingProviderConfig(_))));
     }
 
     #[test]
-    fn test_config_validation_empty_key_allowed() {
+    fn test_config_validation_empty_key() {
         let config = Config {
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
@@ -954,7 +1055,7 @@ mod tests {
             minimax: None,
             theme: None,
         };
-        assert!(config.validate().is_ok());
+        assert!(matches!(config.validate(), Err(ConfigError::EmptyField("stepfun.api_key"))));
     }
 
     #[test]

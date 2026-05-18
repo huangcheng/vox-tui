@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    style::{Modifier, Style, Stylize},
+    widgets::{Block, Borders, Clear, List, ListItem, Padding, Paragraph},
     Frame,
 };
 
@@ -82,22 +82,32 @@ impl<'a> ConfigView<'a> {
 
         let items: Vec<ListItem> = self.fields.iter().enumerate().flat_map(|(idx, field)| {
             let is_selected = idx == self.selected;
-
             let mut result = Vec::new();
 
+            // Section header before first field of each section
             if let Some(name) = field.section_name() {
-                result.push(ListItem::new(format!("── {} ──", name))
-                    .style(Style::default().fg(Color::DarkGray)));
+                result.push(ListItem::new(""));
+                result.push(ListItem::new(
+                    format!(" {} ", name),
+                ).style(theme.style(theme.accent).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)));
+            }
+
+            if *field == ConfigField::ActiveProvider && idx == 0 {
+                result.push(ListItem::new(""));
+                result.push(ListItem::new(
+                    " Provider ",
+                ).style(theme.style(theme.accent).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)));
             }
 
             let content = self.render_field_content(field, is_selected);
 
             let style = if is_selected {
-                Style::default()
-                    .fg(theme.accent)
+                theme
+                    .style(theme.accent)
                     .add_modifier(Modifier::BOLD)
+                    .bg(theme.surface_highlight)
             } else {
-                Style::default().fg(Color::White)
+                theme.style(theme.text_primary)
             };
 
             result.push(ListItem::new(content).style(style));
@@ -107,26 +117,26 @@ impl<'a> ConfigView<'a> {
         let block = Block::default()
             .title(" Configuration ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.accent));
+            .border_style(theme.style(theme.border))
+            .padding(Padding::horizontal(1));
 
         let list = List::new(items)
-            .block(block)
-            .style(Style::default().fg(Color::White));
+            .block(block);
 
         f.render_widget(list, area);
 
         let help_text = if self.editing {
             "Enter: Save  Esc: Cancel"
         } else {
-            "↑↓ Navigate  ←→: Cycle models  Enter: Edit  q: Quit"
+            "↑↓ Navigate  ←→: Cycle  Enter: Edit  q: Quit"
         };
 
         let help_para = Paragraph::new(help_text)
-            .style(Style::default().fg(Color::DarkGray));
+            .style(theme.style(theme.text_muted));
 
         let help_area = ratatui::layout::Rect::new(
             area.x + 1,
-            area.bottom() - 1,
+            area.y + area.height.saturating_sub(2),
             area.width.saturating_sub(2),
             1,
         );
@@ -142,32 +152,36 @@ impl<'a> ConfigView<'a> {
         let theme = self.theme;
         let field = self.current_field();
 
+        // Dim background
+        let dim_block = Block::default().bg(theme.background);
+        f.render_widget(dim_block.style(Style::default().add_modifier(Modifier::DIM)), area);
+
         let popup_area = Self::centered_popup_area(area);
         f.render_widget(Clear, popup_area);
 
         let title = match field {
-            ConfigField::ActiveProvider => "Edit Active Provider",
             ConfigField::StepFunApiKey => "Edit StepFun API Key",
             ConfigField::MiniMaxApiKey => "Edit MiniMax API Key",
             _ => "Edit Field",
         };
 
         let edit_content = self.edit_buffer;
-        let display_text = format!("{}█", edit_content);
+        let display_text = format!("{}|", edit_content);
 
         let block = Block::default()
             .title(format!(" {} ", title))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.accent));
+            .border_style(theme.style(theme.border_focused))
+            .padding(Padding::horizontal(1));
 
         let inner = block.inner(popup_area);
         f.render_widget(block, popup_area);
 
         let input_para = Paragraph::new(display_text)
-            .style(Style::default().fg(Color::White));
+            .style(theme.style(theme.text_primary));
         let input_area = Rect::new(
             inner.x + 1,
-            inner.y + 2,
+            inner.y + 1,
             inner.width.saturating_sub(2),
             1,
         );
@@ -175,10 +189,10 @@ impl<'a> ConfigView<'a> {
 
         let help = "Enter: Save  Esc: Cancel";
         let help_para = Paragraph::new(help)
-            .style(Style::default().fg(Color::DarkGray));
+            .style(theme.style(theme.text_muted));
         let help_area = Rect::new(
             inner.x + 1,
-            inner.bottom() - 1,
+            inner.bottom().saturating_sub(1),
             inner.width.saturating_sub(2),
             1,
         );
@@ -208,14 +222,14 @@ impl<'a> ConfigView<'a> {
     }
 
     fn render_field_content(&self, field: &ConfigField, is_selected: bool) -> String {
-        let prefix = if is_selected { "► " } else { "  " };
+        let prefix = if is_selected { "▎ " } else { "  " };
 
         match field {
             ConfigField::ActiveProvider => {
                 let value = self.config.default_provider.to_string();
                 let configured = self.config.configured_providers();
-                let arrows = if configured.len() > 1 { " ← →" } else { "" };
-                format!("{}Active Provider: {}{}", prefix, value, arrows)
+                let arrows = if configured.len() > 1 { " ◀ ▶" } else { "" };
+                format!("{}{}{}", prefix, value, arrows)
             }
             ConfigField::StepFunApiKey => {
                 let value = match self.config.stepfun.as_ref() {
@@ -251,7 +265,7 @@ impl<'a> ConfigView<'a> {
                             .unwrap_or(0)
                     }
                 };
-                let arrows = if available_count > 1 { " ← →" } else { "" };
+                let arrows = if available_count > 1 { " ◀ ▶" } else { "" };
                 format!("{}{}: {}{}", prefix, field.label(), current, arrows)
             }
         }

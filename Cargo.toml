@@ -18,8 +18,10 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive", "env"] }
 
 # TUI
-ratatui = "0.28"
+ratatui = "0.30"
 crossterm = "0.28"
+ratatui-image = { version = "10", default-features = false, features = ["image-defaults", "crossterm"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -35,6 +37,12 @@ dirs = "5"
 
 # SSE
 futures-util = "0.3"
+
+# Time
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+# Cross-platform open
+open = "5"
 
 # Async trait
 async-trait = "0.1"

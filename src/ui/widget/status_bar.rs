@@ -1,51 +1,88 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Paragraph, Widget},
+    widgets::Widget,
 };
+
+use crate::ui::AppTheme;
 
 pub struct StatusBar<'a> {
     mode: &'a str,
     position: &'a str,
     help: &'a str,
+    theme: &'a AppTheme,
 }
 
 impl<'a> StatusBar<'a> {
-    pub fn new(mode: &'a str, position: &'a str, help: &'a str) -> Self {
+    pub fn new(mode: &'a str, position: &'a str, help: &'a str, theme: &'a AppTheme) -> Self {
         Self {
             mode,
             position,
             help,
+            theme,
         }
     }
 }
 
 impl Widget for StatusBar<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let mode_text = format!(" {} ", self.mode);
-        let help_text = format!(" {} ", self.help);
+        // Fill status bar background
+        for y in area.y..(area.y + area.height) {
+            for x in area.x..(area.x + area.width) {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_bg(self.theme.surface);
+                }
+            }
+        }
 
-        let line_width = area.width as usize;
-        let left_len = self.mode.len() + 2;
-        let right_len = self.help.len() + 2;
-        let center_max = line_width.saturating_sub(left_len + right_len);
+        // Mode badge: highlight background + bold text
+        let mode_span = Span::styled(
+            format!(" {} ", self.mode),
+            Style::default()
+                .fg(self.theme.text_primary)
+                .bg(self.theme.surface_highlight)
+                .add_modifier(Modifier::BOLD),
+        );
 
-        let center_text = if self.position.chars().count() > center_max {
-            self.position.chars().take(center_max).collect::<String>()
-        } else {
-            self.position.to_string()
-        };
+        let position_span = Span::styled(
+            self.position,
+            self.theme.style(self.theme.text_secondary),
+        );
+
+        let help_span = Span::styled(
+            self.help,
+            self.theme.style(self.theme.text_muted),
+        );
 
         let line = Line::from(vec![
-            Span::styled(mode_text, Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw(center_text),
-            Span::styled(help_text, Style::default().fg(Color::DarkGray)),
+            mode_span,
+            Span::raw("  "),
+            position_span,
+            Span::raw(" "),
         ]);
 
-        Paragraph::new(line)
-            .style(Style::default().bg(Color::DarkGray))
-            .render(area, buf);
+        let line_width: u16 = line
+            .spans
+            .iter()
+            .map(|s| s.content.chars().count() as u16)
+            .sum();
+
+        let help_width = help_span.content.chars().count() as u16;
+        let available = area.width.saturating_sub(line_width);
+
+        if help_width <= available {
+            let padding = available - help_width;
+            let mut spans = line.spans;
+            spans.push(Span::styled(
+                " ".repeat(padding as usize),
+                self.theme.style_bg(self.theme.surface, self.theme.surface),
+            ));
+            spans.push(help_span);
+            Line::from(spans).render(area, buf);
+        } else {
+            line.render(area, buf);
+        }
     }
 }

@@ -13,6 +13,7 @@ pub enum WorkResult {
     StreamDone,
     Error(String),
     ImageGenerated { urls: Vec<String> },
+    ImageDownloaded { image_data: Vec<u8> },
     SpeechGenerated { audio_data: Vec<u8>, format: String },
     VideoGenerated { task_id: String, status: String, video_url: Option<String> },
     MusicGenerated { audio_data: Vec<u8>, format: String },
@@ -171,9 +172,9 @@ impl StepFunProvider {
         }
     }
 
-    pub fn with_config(api_key: impl Into<String>, base_url: Option<&str>, model: Option<&str>) -> Self {
+    pub fn with_config(api_key: impl Into<String>, base_url: Option<&str>, model: Option<&str>, image_model: Option<&str>) -> Self {
         Self {
-            client: crate::stepfun::StepFunClient::with_config(api_key, base_url, model),
+            client: crate::stepfun::StepFunClient::with_config(api_key, base_url, model, image_model),
         }
     }
 }
@@ -207,12 +208,14 @@ impl AIProvider for StepFunProvider {
         })
     }
 
-    async fn image_generate(&self, _prompt: &str, _n: u8, _aspect_ratio: &str) -> ProviderResult<ImageResponse> {
-        Err(ProviderError::Unsupported("image generation".into()))
+    async fn image_generate(&self, prompt: &str, _n: u8, _aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+        self.client.image_generate(prompt).await
+            .map_err(ProviderError::StepFun)
     }
 
-    async fn speech_synthesize(&self, _text: &str, _voice: &str, _speed: f64, _format: &str) -> ProviderResult<SpeechResponse> {
-        Err(ProviderError::Unsupported("speech synthesis".into()))
+    async fn speech_synthesize(&self, text: &str, voice: &str, speed: f64, format: &str) -> ProviderResult<SpeechResponse> {
+        self.client.speech_synthesize(text, voice, speed, format).await
+            .map_err(ProviderError::StepFun)
     }
 
     async fn video_generate(&self, _prompt: &str, _duration: u8, _resolution: &str) -> ProviderResult<VideoResponse> {
@@ -309,30 +312,113 @@ impl AIProvider for MiniMaxProvider {
     }
 }
 
+// ── Retry logic ─────────────────────────────────────────────────────
+
+fn is_transient(err: &ProviderError) -> bool {
+    match err {
+        ProviderError::StepFun(crate::stepfun::StepFunError::Api { status, .. }) if *status >= 500 => true,
+        ProviderError::MiniMax(MiniMaxError::Api { status, .. }) if *status >= 500 => true,
+        ProviderError::StepFun(crate::stepfun::StepFunError::Http(_)) => true,
+        ProviderError::MiniMax(MiniMaxError::Http(_)) => true,
+        _ => false,
+    }
+}
+
+async fn retry<T, F, Fut>(operation: F) -> ProviderResult<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = ProviderResult<T>>,
+{
+    const MAX_RETRIES: usize = 3;
+    const BASE_DELAY_MS: u64 = 500;
+
+    for attempt in 0..=MAX_RETRIES {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(err) => {
+                if attempt == MAX_RETRIES || !is_transient(&err) {
+                    return Err(err);
+                }
+                let delay = BASE_DELAY_MS * 2_u64.pow(attempt as u32);
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
+        }
+    }
+    unreachable!("loop always returns")
+}
+
+pub struct RetryProvider {
+    inner: Box<dyn AIProvider>,
+}
+
+impl RetryProvider {
+    pub fn new(inner: Box<dyn AIProvider>) -> Self {
+        Self { inner }
+    }
+}
+
+#[async_trait]
+impl AIProvider for RetryProvider {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    async fn chat(&self, messages: &[Message]) -> ProviderResult<CompletionResponse> {
+        retry(|| self.inner.chat(messages)).await
+    }
+
+    async fn image_generate(&self, prompt: &str, n: u8, aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+        retry(|| self.inner.image_generate(prompt, n, aspect_ratio)).await
+    }
+
+    async fn speech_synthesize(&self, text: &str, voice: &str, speed: f64, format: &str) -> ProviderResult<SpeechResponse> {
+        retry(|| self.inner.speech_synthesize(text, voice, speed, format)).await
+    }
+
+    async fn video_generate(&self, prompt: &str, duration: u8, resolution: &str) -> ProviderResult<VideoResponse> {
+        retry(|| self.inner.video_generate(prompt, duration, resolution)).await
+    }
+
+    async fn music_generate(&self, prompt: &str, lyrics: Option<&str>, instrumental: bool) -> ProviderResult<MusicResponse> {
+        retry(|| self.inner.music_generate(prompt, lyrics, instrumental)).await
+    }
+
+    async fn search(&self, query: &str, count: u8) -> ProviderResult<SearchResponse> {
+        retry(|| self.inner.search(query, count)).await
+    }
+
+    async fn vision(&self, image_path: &str, prompt: Option<&str>) -> ProviderResult<VisionResponse> {
+        retry(|| self.inner.vision(image_path, prompt)).await
+    }
+}
+
 // ── Factory ─────────────────────────────────────────────────────────
 
 pub fn create_provider(config: &crate::config::Config) -> ProviderResult<Box<dyn AIProvider>> {
-    match &config.default_provider {
+    let provider: Box<dyn AIProvider> = match &config.default_provider {
         ConfigProvider::StepFun => {
             let stepfun = config.stepfun.as_ref()
                 .ok_or_else(|| ProviderError::Config("StepFun config missing".into()))?;
-            Ok(Box::new(StepFunProvider::with_config(
+            let image_model = stepfun.models.image.as_ref().and_then(|m| m.default.as_deref());
+            Box::new(StepFunProvider::with_config(
                 &stepfun.api_key,
                 stepfun.base_url.as_deref(),
                 stepfun.model.as_deref(),
-            )))
+                image_model,
+            ))
         }
         ConfigProvider::MiniMax => {
             let minimax = config.minimax.as_ref()
                 .ok_or_else(|| ProviderError::Config("MiniMax config missing".into()))?;
-            Ok(Box::new(MiniMaxProvider::with_config(
+            Box::new(MiniMaxProvider::with_config(
                 &minimax.api_key,
                 minimax.group_id.as_deref(),
                 minimax.base_url.as_deref(),
                 minimax.model.as_deref(),
-            )))
+            ))
         }
-    }
+    };
+    Ok(Box::new(RetryProvider::new(provider)))
 }
 
 #[cfg(test)]
@@ -472,5 +558,134 @@ mod tests {
             WorkResult::VisionResult { description: "desc".into() },
         ];
         assert_eq!(variants.len(), 10);
+    }
+
+    // ── Retry logic tests ───────────────────────────────────────────────
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct MockProvider {
+        call_count: Arc<AtomicUsize>,
+        errors_before_success: usize,
+        transient: bool,
+    }
+
+    #[async_trait]
+    impl AIProvider for MockProvider {
+        fn name(&self) -> &str {
+            "Mock"
+        }
+
+        async fn chat(&self, _messages: &[Message]) -> ProviderResult<CompletionResponse> {
+            let count = self.call_count.fetch_add(1, Ordering::SeqCst);
+            if count < self.errors_before_success {
+                if self.transient {
+                    Err(ProviderError::StepFun(crate::stepfun::StepFunError::Api {
+                        status: 500,
+                        message: "server error".into(),
+                    }))
+                } else {
+                    Err(ProviderError::Unknown("non-transient".into()))
+                }
+            } else {
+                Ok(CompletionResponse {
+                    content: "ok".into(),
+                    model: "mock".into(),
+                    usage: None,
+                })
+            }
+        }
+
+        async fn image_generate(&self, _prompt: &str, _n: u8, _aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+            Err(ProviderError::Unsupported("test".into()))
+        }
+
+        async fn speech_synthesize(&self, _text: &str, _voice: &str, _speed: f64, _format: &str) -> ProviderResult<SpeechResponse> {
+            Err(ProviderError::Unsupported("test".into()))
+        }
+
+        async fn video_generate(&self, _prompt: &str, _duration: u8, _resolution: &str) -> ProviderResult<VideoResponse> {
+            Err(ProviderError::Unsupported("test".into()))
+        }
+
+        async fn music_generate(&self, _prompt: &str, _lyrics: Option<&str>, _instrumental: bool) -> ProviderResult<MusicResponse> {
+            Err(ProviderError::Unsupported("test".into()))
+        }
+
+        async fn search(&self, _query: &str, _count: u8) -> ProviderResult<SearchResponse> {
+            Err(ProviderError::Unsupported("test".into()))
+        }
+
+        async fn vision(&self, _image_path: &str, _prompt: Option<&str>) -> ProviderResult<VisionResponse> {
+            Err(ProviderError::Unsupported("test".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_retry_succeeds_after_two_failures() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mock = MockProvider {
+            call_count: counter.clone(),
+            errors_before_success: 2,
+            transient: true,
+        };
+        let retry = RetryProvider::new(Box::new(mock));
+        let result = retry.chat(&[Message::user("hello")]).await;
+        assert!(result.is_ok());
+        assert_eq!(counter.load(Ordering::SeqCst), 3); // initial + 2 retries
+    }
+
+    #[tokio::test]
+    async fn test_retry_returns_last_error_after_max_retries() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mock = MockProvider {
+            call_count: counter.clone(),
+            errors_before_success: 10, // more than max retries
+            transient: true,
+        };
+        let retry = RetryProvider::new(Box::new(mock));
+        let result = retry.chat(&[Message::user("hello")]).await;
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 4); // initial + 3 retries
+    }
+
+    #[tokio::test]
+    async fn test_no_retry_on_non_transient_error() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mock = MockProvider {
+            call_count: counter.clone(),
+            errors_before_success: 10,
+            transient: false,
+        };
+        let retry = RetryProvider::new(Box::new(mock));
+        let result = retry.chat(&[Message::user("hello")]).await;
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 1); // only initial attempt
+    }
+
+    #[test]
+    fn test_is_transient_detection() {
+        assert!(is_transient(&ProviderError::StepFun(crate::stepfun::StepFunError::Api {
+            status: 500,
+            message: "err".into(),
+        })));
+        assert!(is_transient(&ProviderError::StepFun(crate::stepfun::StepFunError::Api {
+            status: 502,
+            message: "err".into(),
+        })));
+        assert!(is_transient(&ProviderError::MiniMax(MiniMaxError::Api {
+            status: 503,
+            message: "err".into(),
+        })));
+        assert!(!is_transient(&ProviderError::StepFun(crate::stepfun::StepFunError::Api {
+            status: 400,
+            message: "err".into(),
+        })));
+        assert!(!is_transient(&ProviderError::MiniMax(MiniMaxError::Api {
+            status: 404,
+            message: "err".into(),
+        })));
+        assert!(!is_transient(&ProviderError::Unknown("err".into())));
     }
 }

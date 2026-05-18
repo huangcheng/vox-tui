@@ -1,9 +1,10 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout as RatatuiLayout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
+    style::Stylize,
+    widgets::{Block, BorderType, Borders, Padding, Paragraph},
     Frame,
 };
+use ratatui_image::{Image, protocol::Protocol};
 
 use crate::ui::widget::{InputField, Spinner};
 use crate::ui::AppTheme;
@@ -12,7 +13,7 @@ pub struct ImageView<'a> {
     prompt: &'a str,
     is_generating: bool,
     preview_text: Option<&'a str>,
-    _theme: &'a AppTheme,
+    theme: &'a AppTheme,
 }
 
 impl<'a> ImageView<'a> {
@@ -21,7 +22,7 @@ impl<'a> ImageView<'a> {
             prompt,
             is_generating: false,
             preview_text: None,
-            _theme: theme,
+            theme,
         }
     }
 
@@ -36,55 +37,65 @@ impl<'a> ImageView<'a> {
     }
 
     pub fn render(&self, f: &mut Frame, area: ratatui::layout::Rect) {
+        self.render_with_image(f, area, None);
+    }
+
+    pub fn render_with_image(&self, f: &mut Frame, area: ratatui::layout::Rect, image_protocol: Option<&Protocol>) {
         let chunks = RatatuiLayout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(1),
-                Constraint::Length(3),
+                Constraint::Length(1), // gap
+                Constraint::Length(5),
             ])
             .split(area);
 
         let preview_area = chunks[0];
-        let input_area = chunks[1];
+        let input_area = chunks[2];
+        let theme = self.theme;
+
+        // Common preview block — subtle, consistent
+        let preview_block = Block::default()
+            .border_type(BorderType::Plain)
+            .borders(Borders::ALL)
+            .border_style(theme.style(theme.border))
+            .padding(Padding::uniform(1))
+            .bg(theme.surface);
 
         if self.is_generating {
-            let block = Block::default()
-                .title(" Preview ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow));
-            let inner = block.inner(preview_area);
-            f.render_widget(block, preview_area);
-            let spinner = Spinner::new().label("Generating image...");
+            let inner = preview_block.inner(preview_area);
+            f.render_widget(preview_block, preview_area);
+
+            let spinner = Spinner::new()
+                .label("Generating image...")
+                .theme(theme);
             f.render_widget(spinner, inner);
+        } else if let Some(proto) = image_protocol {
+            let inner = preview_block.inner(preview_area);
+            f.render_widget(preview_block, preview_area);
+
+            let image_widget = Image::new(proto);
+            f.render_widget(image_widget, inner);
         } else if let Some(text) = self.preview_text {
             let preview = Paragraph::new(text)
-                .style(Style::default().fg(Color::Green))
-                .block(
-                    Block::default()
-                        .title(" Preview ")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Green)),
-                );
+                .style(theme.style(theme.text_primary))
+                .block(preview_block);
             f.render_widget(preview, preview_area);
         } else {
             let preview = Paragraph::new("Image generation preview will appear here.\n\nEnter a prompt below to generate an image.")
-                .style(Style::default().fg(Color::DarkGray))
-                .block(
-                    Block::default()
-                        .title(" Preview ")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                );
+                .style(theme.style(theme.text_secondary))
+                .alignment(ratatui::layout::Alignment::Center)
+                .block(preview_block);
             f.render_widget(preview, preview_area);
         }
 
         let input_label = if self.is_generating {
-            "▌ Generating..."
+            "Generating..."
         } else {
             "Prompt"
         };
 
-        let input = InputField::new(input_label, self.prompt)
+        let input = InputField::new(input_label, self.prompt, theme)
             .focused(true);
         f.render_widget(input, input_area);
     }

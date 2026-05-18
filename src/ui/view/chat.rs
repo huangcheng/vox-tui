@@ -1,5 +1,6 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout as RatatuiLayout},
+    widgets::{Block, Borders},
     Frame,
 };
 
@@ -11,7 +12,7 @@ pub struct ChatView<'a> {
     input_text: &'a str,
     is_streaming: bool,
     scroll_offset: u16,
-    _theme: &'a AppTheme,
+    theme: &'a AppTheme,
 }
 
 impl<'a> ChatView<'a> {
@@ -21,7 +22,7 @@ impl<'a> ChatView<'a> {
             input_text,
             is_streaming: false,
             scroll_offset: 0,
-            _theme: theme,
+            theme,
         }
     }
 
@@ -40,23 +41,30 @@ impl<'a> ChatView<'a> {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(1),
-                Constraint::Length(3),
+                Constraint::Length(1), // gap
+                Constraint::Length(5),
             ])
             .split(area);
 
         let messages_area = chunks[0];
-        let input_area = chunks[1];
+        let input_area = chunks[2];
+
+        // Subtle divider between messages and input
+        let divider = Block::default()
+            .borders(Borders::TOP)
+            .border_style(self.theme.style(self.theme.border));
+        f.render_widget(divider, chunks[1]);
 
         let message_list = MessageList::new(self.messages).scroll_offset(self.scroll_offset);
-        f.render_widget(message_list, messages_area);
+        message_list.render(f, messages_area, self.theme);
 
         let input_label = if self.is_streaming {
-            "▌ Typing..."
+            "Typing..."
         } else {
-            "Message"
+            "Prompt"
         };
 
-        let input = InputField::new(input_label, self.input_text)
+        let input = InputField::new(input_label, self.input_text, self.theme)
             .focused(true);
         f.render_widget(input, input_area);
     }
