@@ -3,3 +3,6 @@
 *.swo
 *~
 .DS_Store
+output.*
+*.mp3
+*.wav
