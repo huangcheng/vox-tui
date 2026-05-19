@@ -163,7 +163,7 @@ fn hex_to_bytes(hex: &str) -> Vec<u8> {
     if hex.is_empty() {
         return Vec::new();
     }
-    let hex = if hex.len() % 2 != 0 { format!("0{hex}") } else { hex.to_string() };
+    let hex = if !hex.len().is_multiple_of(2) { format!("0{hex}") } else { hex.to_string() };
     (0..hex.len())
         .step_by(2)
         .filter_map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())

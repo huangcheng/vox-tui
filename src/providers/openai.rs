@@ -22,7 +22,7 @@ impl OpenAIClient {
             format!("{}/v1", base_url.trim_end_matches('/'))
         };
         Self {
-            client: client.unwrap_or_else(reqwest::Client::new),
+            client: client.unwrap_or_default(),
             base_url,
             api_key: api_key.to_string(),
         }

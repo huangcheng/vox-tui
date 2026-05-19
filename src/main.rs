@@ -67,8 +67,8 @@ fn resolve_provider(global: &GlobalOpts, config: &Config) -> Result<ConfigProvid
     let default = &config.default_provider;
 
     // 3. Auto-detect: only 1 provider has API key
-    let stepfun_has_key = config.stepfun.as_ref().map_or(false, |s| !s.api_key.is_empty());
-    let minimax_has_key = config.minimax.as_ref().map_or(false, |m| !m.api_key.is_empty());
+    let stepfun_has_key = config.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty());
+    let minimax_has_key = config.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty());
 
     match (stepfun_has_key, minimax_has_key) {
         (true, false) => return Ok(ConfigProvider::StepFun),
@@ -239,7 +239,7 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
                 };
 
                 // Create spinner (unless quiet mode)
-                let spinner = create_spinner("Generating response...", &output);
+                let spinner = create_spinner("Generating response...", output);
 
                 let result = provider.chat(&messages).await;
 
@@ -268,7 +268,7 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
             let messages = vec![providers::Message::user(prompt)];
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating completion...", &output);
+            let spinner = create_spinner("Generating completion...", output);
 
             let result = provider.chat(&messages).await;
 
@@ -365,7 +365,7 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating image...", &output);
+            let spinner = create_spinner("Generating image...", output);
 
             let result = provider.image_generate(&prompt, n, &aspect_ratio).await;
 
@@ -429,7 +429,7 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating speech...", &output);
+            let spinner = create_spinner("Generating speech...", output);
 
             let result = provider.speech_synthesize(&text, &voice, speed, &format).await;
 
@@ -468,7 +468,7 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating video...", &output);
+            let spinner = create_spinner("Generating video...", output);
 
             let result = provider.video_generate(&prompt, duration, &resolution).await;
 
@@ -509,7 +509,7 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating music...", &output);
+            let spinner = create_spinner("Generating music...", output);
 
             let result = provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await;
 
@@ -548,7 +548,7 @@ async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Searching...", &output);
+            let spinner = create_spinner("Searching...", output);
 
             let result = provider.search(&query, count).await;
 
@@ -585,7 +585,7 @@ async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Analyzing image...", &output);
+            let spinner = create_spinner("Analyzing image...", output);
 
             let result = provider.vision(&file, prompt.as_deref()).await;
 
@@ -755,12 +755,12 @@ fn check_api_keys(config: &Config) -> DoctorCheckResult {
     let mut some_have_keys = false;
 
     if config.stepfun.is_some() {
-        let has_key = config.stepfun.as_ref().map_or(false, |s| !s.api_key.is_empty());
+        let has_key = config.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty());
         parts.push(format!("StepFun: {} set", if has_key { "✓" } else { "✗ missing" }));
         if has_key { some_have_keys = true; } else { all_have_keys = false; }
     }
     if config.minimax.is_some() {
-        let has_key = config.minimax.as_ref().map_or(false, |m| !m.api_key.is_empty());
+        let has_key = config.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty());
         parts.push(format!("MiniMax: {} set", if has_key { "✓" } else { "✗ missing" }));
         if has_key { some_have_keys = true; } else { all_have_keys = false; }
     }
@@ -823,7 +823,7 @@ fn check_output_dir(config: &Config) -> DoctorCheckResult {
             name: "output-dir".into(),
             description: "Output dir".into(),
             status: "pass".into(),
-            details: Some("Using default (./vox-output)".into()),
+            details: Some("Using default (./vox-&output)".into()),
         },
     }
 }
@@ -1074,7 +1074,7 @@ fn handle_models(cmd: ModelsCommand, config: &mut Config, output: &Output) {
                 } else {
                     output.result(&format!("{cap}:"));
                     for m in &models {
-                        let is_selected = config.get_model_for(cap).map_or(false, |cm| cm == *m);
+                        let is_selected = config.get_model_for(cap).is_some_and(|cm| cm == *m);
                         let marker = if is_selected { " (current)" } else { "" };
                         output.result(&format!("  {m}{marker}"));
                     }

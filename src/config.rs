@@ -241,16 +241,16 @@ impl Config {
                 sf.base_url = Some(format!("{}/v1", url.trim_end_matches('/')));
             }
             // Fix deprecated chat model names
-            if let Some(ref mut chat) = sf.models.chat {
-                if chat.starts_with("step-1o-") {
-                    *chat = "step-1-8k".to_string();
-                }
+            if let Some(ref mut chat) = sf.models.chat
+                && chat.starts_with("step-1o-")
+            {
+                *chat = "step-1-8k".to_string();
             }
             // Fix deprecated speech model names
-            if let Some(ref mut speech) = sf.models.speech {
-                if speech == "step-tts" || speech == "step-tts-2" {
-                    *speech = "stepaudio-2.5-tts".to_string();
-                }
+            if let Some(ref mut speech) = sf.models.speech
+                && (speech == "step-tts" || speech == "step-tts-2")
+            {
+                *speech = "stepaudio-2.5-tts".to_string();
             }
         }
         if let Some(ref mut mm) = self.minimax {
@@ -265,10 +265,10 @@ impl Config {
                 mm.models.speech = Some("speech-2.8-hd".to_string());
             }
             // Migrate old speech model to new default
-            if let Some(ref mut speech) = mm.models.speech {
-                if speech == "speech-01" {
-                    *speech = "speech-2.8-hd".to_string();
-                }
+            if let Some(ref mut speech) = mm.models.speech
+                && speech == "speech-01"
+            {
+                *speech = "speech-2.8-hd".to_string();
             }
             if mm.models.video.is_none() {
                 mm.models.video = Some("MiniMax-Hailuo-2.3".to_string());
@@ -280,10 +280,10 @@ impl Config {
                 mm.models.vision = Some("MiniMax-M2.7".to_string());
             }
             // Migrate old base URL to new domain (api.minimax.chat → api.minimaxi.com)
-            if let Some(ref mut url) = mm.base_url {
-                if url.contains("api.minimax.chat") {
-                    *url = url.replace("api.minimax.chat", "api.minimaxi.com");
-                }
+            if let Some(ref mut url) = mm.base_url
+                && url.contains("api.minimax.chat")
+            {
+                *url = url.replace("api.minimax.chat", "api.minimaxi.com");
             }
         }
     }
@@ -759,7 +759,7 @@ impl ConfigEditor {
             };
             config.default_provider = providers[new_idx].clone();
             if let Err(e) = config.save() {
-                log::warn!("Failed to save config after cycling provider: {}", e);
+                eprintln!("Warning: Failed to save config after cycling provider: {}", e);
             }
             return;
         }
