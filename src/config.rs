@@ -142,12 +142,18 @@ impl std::fmt::Debug for MiniMaxConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_version")]
+    pub version: u32,
     #[serde(alias = "provider")]
     pub default_provider: Provider,
     pub stepfun: Option<StepFunConfig>,
     pub minimax: Option<MiniMaxConfig>,
     pub theme: Option<ThemeConfig>,
     pub output_dir: Option<String>,
+}
+
+fn default_version() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,13 +164,7 @@ pub struct ThemeConfig {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            default_provider: Provider::MiniMax,
-            stepfun: None,
-            minimax: None,
-            theme: None,
-            output_dir: None,
-        }
+        Self::default_config()
     }
 }
 
@@ -218,8 +218,22 @@ impl Config {
 
     fn migrate(&mut self) {
         if let Some(ref mut sf) = self.stepfun {
-            // Fix deprecated image model names
-            sf.models.image = Some("step-image-edit-2".to_string());
+            // Set default models only if not already configured by user
+            if sf.models.image.is_none() {
+                sf.models.image = Some("step-image-edit-2".to_string());
+            }
+            if sf.models.chat.is_none() {
+                sf.models.chat = Some("step-1-8k".to_string());
+            }
+            if sf.models.speech.is_none() {
+                sf.models.speech = Some("step-tts-2".to_string());
+            }
+            if sf.models.vision.is_none() {
+                sf.models.vision = Some("step-1v-8k".to_string());
+            }
+            if sf.models.search.is_none() {
+                sf.models.search = Some("step-search".to_string());
+            }
             // Fix base_url missing /v1 suffix
             if let Some(ref url) = sf.base_url
                 && !url.ends_with("/v1")
@@ -237,6 +251,27 @@ impl Config {
                 if speech == "step-tts" {
                     *speech = "step-tts-2".to_string();
                 }
+            }
+        }
+        if let Some(ref mut mm) = self.minimax {
+            // Set default models only if not already configured by user
+            if mm.models.chat.is_none() {
+                mm.models.chat = Some("MiniMax-M2.7".to_string());
+            }
+            if mm.models.image.is_none() {
+                mm.models.image = Some("image-01".to_string());
+            }
+            if mm.models.speech.is_none() {
+                mm.models.speech = Some("speech-01".to_string());
+            }
+            if mm.models.video.is_none() {
+                mm.models.video = Some("MiniMax-Hailuo-2.3".to_string());
+            }
+            if mm.models.music.is_none() {
+                mm.models.music = Some("music-2.6".to_string());
+            }
+            if mm.models.vision.is_none() {
+                mm.models.vision = Some("vision-01".to_string());
             }
         }
     }
@@ -325,35 +360,19 @@ impl Config {
         }
         let content = toml::to_string_pretty(self).map_err(ConfigError::Serialize)?;
         fs::write(path, content).map_err(ConfigError::Io)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(path, perms).map_err(ConfigError::Io)?;
+        }
         Ok(())
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        // Check that at least one provider is configured
+        // Check that at least one provider section exists
         if self.stepfun.is_none() && self.minimax.is_none() {
             return Err(ConfigError::MissingProviderConfig("No provider configured"));
-        }
-
-        // Check that default provider has an API key
-        match self.default_provider {
-            Provider::StepFun => {
-                if let Some(ref sf) = self.stepfun {
-                    if sf.api_key.is_empty() {
-                        return Err(ConfigError::EmptyField("stepfun.api_key"));
-                    }
-                } else {
-                    return Err(ConfigError::MissingProviderConfig("stepfun"));
-                }
-            }
-            Provider::MiniMax => {
-                if let Some(ref mm) = self.minimax {
-                    if mm.api_key.is_empty() {
-                        return Err(ConfigError::EmptyField("minimax.api_key"));
-                    }
-                } else {
-                    return Err(ConfigError::MissingProviderConfig("minimax"));
-                }
-            }
         }
 
         // Validate theme accent color if provided
@@ -370,7 +389,7 @@ impl Config {
     fn is_valid_color(color: &str) -> bool {
         let lower = color.trim().to_lowercase();
         if let Some(hex) = lower.strip_prefix('#') {
-            return hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit());
+            return (hex.len() == 6 || hex.len() == 3) && hex.chars().all(|c| c.is_ascii_hexdigit());
         }
         matches!(
             lower.as_str(),
@@ -380,8 +399,8 @@ impl Config {
 
     pub fn configured_providers(&self) -> Vec<Provider> {
         let mut providers = Vec::new();
-        if self.stepfun.is_some() { providers.push(Provider::StepFun); }
-        if self.minimax.is_some() { providers.push(Provider::MiniMax); }
+        if self.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty()) { providers.push(Provider::StepFun); }
+        if self.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty()) { providers.push(Provider::MiniMax); }
         providers
     }
 
@@ -727,7 +746,9 @@ impl ConfigEditor {
                 current_idx - 1
             };
             config.default_provider = providers[new_idx].clone();
-            let _ = config.save();
+            if let Err(e) = config.save() {
+                log::warn!("Failed to save config after cycling provider: {}", e);
+            }
             return;
         }
 
@@ -820,57 +841,6 @@ impl ConfigEditor {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn get_current_model(&self, config: &Config, field: ConfigField) -> String {
-        let provider = match field.provider() {
-            Some(p) => p,
-            None => return String::new(),
-        };
-        let category = match field.category() {
-            Some(c) => c,
-            None => return String::new(),
-        };
-        match provider {
-            Provider::StepFun => {
-                config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .map(|s| s.to_string())
-                    .or_else(|| config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
-                    .unwrap_or_default()
-            }
-            Provider::MiniMax => {
-                config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .map(|s| s.to_string())
-                    .or_else(|| config.minimax.as_ref().and_then(|mm| mm.model.clone()))
-                    .unwrap_or_default()
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn get_available_count(&self, config: &Config, field: ConfigField) -> usize {
-        let provider = match field.provider() {
-            Some(p) => p,
-            None => return 0,
-        };
-        let category = match field.category() {
-            Some(c) => c,
-            None => return 0,
-        };
-        // Get count from models.rs since config no longer stores available lists
-        crate::models::get_available_models(&provider, category).len()
-    }
-
-    #[allow(dead_code)]
-    pub fn mask_api_key(key: &str) -> String {
-        if key.is_empty() {
-            "(not set)".to_string()
-        } else {
-            let visible: String = key.chars().take(4).collect();
-            format!("{visible}***")
-        }
-    }
 }
 
 #[cfg(feature = "tui")]
@@ -927,6 +897,7 @@ mod tests {
 
     fn sample_config() -> Config {
         Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-test-key".to_string(),
@@ -949,6 +920,7 @@ mod tests {
     #[test]
     fn test_config_validation_missing_provider() {
         let config = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: None,
             minimax: None,
@@ -960,7 +932,9 @@ mod tests {
 
     #[test]
     fn test_config_validation_empty_key() {
+        // Empty API keys are allowed — users add providers incrementally
         let config = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: String::new(),
@@ -972,7 +946,7 @@ mod tests {
             theme: None,
             output_dir: None,
         };
-        assert!(matches!(config.validate(), Err(ConfigError::EmptyField("stepfun.api_key"))));
+        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -987,6 +961,7 @@ mod tests {
     #[test]
     fn test_config_configured_providers_both() {
         let config = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-test-key".to_string(),
@@ -1013,6 +988,7 @@ mod tests {
     #[test]
     fn test_config_configured_providers_single() {
         let config = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-test-key".to_string(),
@@ -1032,6 +1008,7 @@ mod tests {
     #[test]
     fn test_config_configured_providers_none() {
         let config = Config {
+            version: 1,
             default_provider: Provider::MiniMax,
             stepfun: None,
             minimax: None,
@@ -1045,6 +1022,7 @@ mod tests {
     #[test]
     fn test_config_has_provider() {
         let config = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-test-key".to_string(),
@@ -1069,6 +1047,7 @@ mod tests {
     #[test]
     fn test_config_default_provider_name() {
         let config = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-test-key".to_string(),
@@ -1100,6 +1079,7 @@ api_key = "sk-backward-compat"
     #[test]
     fn test_config_roundtrip_new_field() {
         let config = Config {
+            version: 1,
             default_provider: Provider::MiniMax,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-test-key".to_string(),
@@ -1139,6 +1119,7 @@ api_key = "sk-backward-compat"
     fn test_merge_user_over_default() {
         let mut config = Config::default_config();
         let user = Config {
+            version: 1,
             default_provider: Provider::StepFun,
             stepfun: Some(StepFunConfig {
                 api_key: "sk-real-key".to_string(),
@@ -1288,14 +1269,6 @@ api_key = "sk-backward-compat"
 
     #[cfg(feature = "tui")]
     #[test]
-    fn test_config_editor_mask_api_key() {
-        assert_eq!(ConfigEditor::mask_api_key(""), "(not set)");
-        assert_eq!(ConfigEditor::mask_api_key("abcd"), "abcd***");
-        assert_eq!(ConfigEditor::mask_api_key("abcdefgh"), "abcd***");
-    }
-
-    #[cfg(feature = "tui")]
-    #[test]
     fn test_config_field_build_fields() {
         let config = Config::default_config();
         let fields = ConfigField::build_fields(&config);
@@ -1309,7 +1282,6 @@ api_key = "sk-backward-compat"
         // Regression: byte-slicing on multi-byte UTF-8 would panic.
         assert_eq!(mask_key("日本語key"), "日本語k***");
         assert_eq!(mask_key("日"), "日***");
-        assert_eq!(ConfigEditor::mask_api_key("日本"), "日本***");
     }
 
     #[cfg(feature = "tui")]
@@ -1317,6 +1289,7 @@ api_key = "sk-backward-compat"
     fn test_cycle_field_active_provider_reverse() {
         // Regression: reverse direction was broken — it always returned the last index.
         let mut config = Config {
+            version: 1,
             default_provider: Provider::MiniMax,
             stepfun: Some(StepFunConfig {
                 api_key: "sk".into(),

@@ -123,6 +123,14 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
             handle_config(cmd, &mut config, &output);
             return Ok(());
         }
+        Some(Commands::Providers(cmd)) => {
+            handle_providers(cmd, &mut config, &output);
+            return Ok(());
+        }
+        Some(Commands::Models(cmd)) => {
+            handle_models(cmd, &mut config, &output);
+            return Ok(());
+        }
         Some(Commands::Completion { shell }) => {
             handle_completion(&shell);
             return Ok(());
@@ -158,8 +166,8 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
 
         // ── Setup & configuration ────────────────────────────────────
         Some(Commands::Doctor(_)) => unreachable!("handled above"),
-        Some(Commands::Providers(cmd)) => handle_providers(cmd, &mut config, &output),
-        Some(Commands::Models(cmd)) => handle_models(cmd, &mut config, &output),
+        Some(Commands::Providers(_)) => unreachable!("handled above"),
+        Some(Commands::Models(_)) => unreachable!("handled above"),
         Some(Commands::Config(_)) => unreachable!("handled above"),
         Some(Commands::Completion { .. }) => unreachable!("handled above"),
 
