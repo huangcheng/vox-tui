@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::cell::Cell;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputFormat {
@@ -9,13 +9,22 @@ pub enum OutputFormat {
 pub struct Output {
     pub format: OutputFormat,
     pub quiet: bool,
-    pub verbose: bool,
-    pub no_color: bool,
+    verbose: bool,
+    #[allow(dead_code)] // reserved for future color control
+    no_color: bool,
+    /// Tracks the last error code set via `error()`.
+    last_error_code: Cell<Option<i32>>,
 }
 
 impl Output {
     pub fn new(format: OutputFormat, quiet: bool, verbose: bool, no_color: bool) -> Self {
-        Self { format, quiet, verbose, no_color }
+        Self {
+            format,
+            quiet,
+            verbose,
+            no_color,
+            last_error_code: Cell::new(None),
+        }
     }
 
     /// Print result to stdout (respects format).
@@ -24,6 +33,7 @@ impl Output {
     }
 
     /// Print result as JSON to stdout.
+    #[allow(dead_code)]
     pub fn result_json(&self, value: &serde_json::Value) {
         println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
     }
@@ -36,9 +46,11 @@ impl Output {
     }
 
     /// Print error to stderr (text) or stdout (json).
+    /// Also records the error code for later retrieval via `exit_code()`.
     pub fn error(&self, msg: &str, code: i32) {
+        self.last_error_code.set(Some(code));
         match self.format {
-            OutputFormat::Text => eprintln!("Error: {msg}"),
+            OutputFormat::Text => eprintln!("Error: {msg} (exit code: {code})"),
             OutputFormat::Json => {
                 let json = serde_json::json!({"error": msg, "code": code});
                 println!("{json}");
@@ -47,6 +59,7 @@ impl Output {
     }
 
     /// Print verbose debug info to stderr.
+    #[allow(dead_code)]
     pub fn debug(&self, msg: &str) {
         if self.verbose {
             eprintln!("[debug] {msg}");
@@ -54,6 +67,7 @@ impl Output {
     }
 
     /// Print deprecation warning to stderr.
+    #[allow(dead_code)]
     pub fn deprecation(&self, msg: &str) {
         eprintln!("Warning: {msg}");
     }
@@ -61,6 +75,17 @@ impl Output {
     /// Check if quiet mode is enabled.
     pub fn is_quiet(&self) -> bool {
         self.quiet
+    }
+
+    /// Returns `true` if any error has been recorded.
+    pub fn has_errors(&self) -> bool {
+        self.last_error_code.get().is_some()
+    }
+
+    /// Returns the exit code to use when the process terminates.
+    /// Returns the last error code if an error occurred, otherwise `0`.
+    pub fn exit_code(&self) -> i32 {
+        self.last_error_code.get().unwrap_or(0)
     }
 }
 

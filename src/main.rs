@@ -71,7 +71,7 @@ fn resolve_provider(global: &GlobalOpts, config: &Config) -> Result<ConfigProvid
         (true, false) => return Ok(ConfigProvider::StepFun),
         (false, true) => return Ok(ConfigProvider::MiniMax),
         (true, true) => {} // fall through to default_provider
-        (false, false) => return Err("No providers configured. Run: vox init".into()),
+        (false, false) => return Err("No providers configured. Set VOX_API_KEY env var or edit ~/.config/vox/config.toml".into()),
     }
 
     // Use default_provider from config
@@ -92,13 +92,6 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
     });
     let cli = cli_copy;
 
-    // Load config (respecting --config override via VOX_CONFIG env)
-    let mut config = if let Some(ref config_path) = cli.global.config {
-        Config::load_from(std::path::Path::new(config_path)).unwrap_or_default()
-    } else {
-        Config::load().unwrap_or_default()
-    };
-
     // Create Output formatter
     let output = Output::new(
         OutputFormat::from_str(&cli.global.format),
@@ -107,12 +100,21 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
         cli.global.no_color,
     );
 
+    // Load config (respecting --config override via VOX_CONFIG env)
+    let mut config = if let Some(ref config_path) = cli.global.config {
+        match Config::load_from(std::path::Path::new(config_path)) {
+            Ok(c) => c,
+            Err(e) => {
+                output.error(&format!("Failed to load config from {}: {e}", config_path), 1);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        Config::load().unwrap_or_default()
+    };
+
     // Handle commands that don't need a provider first
     match cli.command {
-        Some(Commands::Init(args)) => {
-            handle_init(args, &mut config, &output);
-            return Ok(());
-        }
         Some(Commands::Doctor(args)) => {
             handle_doctor(args, &config, &output).await;
             return Ok(());
@@ -155,67 +157,18 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
         Some(Commands::Vision(cmd)) => handle_vision(cmd, &config, &output).await,
 
         // ── Setup & configuration ────────────────────────────────────
-        Some(Commands::Init(_)) => unreachable!("handled above"),
         Some(Commands::Doctor(_)) => unreachable!("handled above"),
         Some(Commands::Providers(cmd)) => handle_providers(cmd, &config, &output),
         Some(Commands::Models(cmd)) => handle_models(cmd, &mut config, &output),
         Some(Commands::Config(_)) => unreachable!("handled above"),
         Some(Commands::Completion { .. }) => unreachable!("handled above"),
 
-        // ── Legacy backward-compat ───────────────────────────────────
-        Some(Commands::LegacyImage(args)) => {
-            output.deprecation("The 'image' command is deprecated. Use 'vox image generate <prompt>' instead.");
-            handle_image(ImageCommand::Generate {
-                prompt: args.prompt,
-                aspect_ratio: args.aspect_ratio,
-                output: args.output,
-                n: args.n,
-            }, &config, &output).await;
-        }
-        Some(Commands::LegacySpeech(args)) => {
-            output.deprecation("The 'speech' command is deprecated. Use 'vox speech generate --text <text>' instead.");
-            handle_speech(SpeechCommand::Generate {
-                text: args.text,
-                out: args.out,
-                voice: args.voice,
-                speed: args.speed,
-                format: args.format,
-            }, &config, &output).await;
-        }
-        Some(Commands::LegacyVideo(args)) => {
-            output.deprecation("The 'video' command is deprecated. Use 'vox video generate --prompt <prompt>' instead.");
-            handle_video(VideoCommand::Generate {
-                prompt: args.prompt,
-                duration: args.duration,
-                resolution: args.resolution,
-                out: None,
-            }, &config, &output).await;
-        }
-        Some(Commands::LegacyMusic(args)) => {
-            output.deprecation("The 'music' command is deprecated. Use 'vox music generate --prompt <prompt>' instead.");
-            handle_music(MusicCommand::Generate {
-                prompt: args.prompt,
-                lyrics: args.lyrics,
-                instrumental: args.instrumental,
-                out: args.out,
-            }, &config, &output).await;
-        }
-        Some(Commands::LegacySearch(args)) => {
-            output.deprecation("The 'search' command is deprecated. Use 'vox search query <query>' instead.");
-            handle_search(SearchCommand::Query {
-                query: args.query,
-                count: args.count,
-            }, &config, &output).await;
-        }
-        Some(Commands::LegacyVision(args)) => {
-            output.deprecation("The 'vision' command is deprecated. Use 'vox vision analyze <file>' instead.");
-            handle_vision(VisionCommand::Analyze {
-                file: args.file,
-                prompt: args.prompt,
-            }, &config, &output).await;
-        }
-
         None => {}
+    }
+
+    // Exit with error code if errors occurred
+    if output.has_errors() {
+        std::process::exit(output.exit_code());
     }
 
     Ok(())
@@ -267,11 +220,6 @@ fn apply_global_overrides(global: &GlobalOpts, config: &mut Config) {
         }
     }
 
-    if let Some(ref group_id) = global.api_key {
-        // group_id was removed from GlobalOpts; this is a no-op for backward compat
-        let _ = group_id;
-    }
-
     if let Some(ref output_dir) = global.output_dir {
         config.output_dir = Some(output_dir.clone());
     }
@@ -291,11 +239,11 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
     };
 
     match cmd {
-        TextCommand::Chat { message, system, history: _, stream } => {
+        TextCommand::Chat { message, system } => {
             // If no message provided, enter REPL mode
             if let Some(msg) = message {
                 // Check capability
-                if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat") {
+                if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat", &config.default_provider) {
                     output.error(&e, 1);
                     return;
                 }
@@ -310,23 +258,9 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
                 };
 
                 // Create spinner (unless quiet mode)
-                let spinner = if !output.is_quiet() {
-                    let sp = indicatif::ProgressBar::new_spinner();
-                    sp.set_style(indicatif::ProgressStyle::default_spinner()
-                        .template("{spinner} {msg}").unwrap());
-                    sp.set_message("Generating response...");
-                    sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                    Some(sp)
-                } else {
-                    None
-                };
+                let spinner = create_spinner("Generating response...", &output);
 
-                let result = if stream {
-                    output.status("Streaming response...");
-                    provider.chat(&messages).await
-                } else {
-                    provider.chat(&messages).await
-                };
+                let result = provider.chat(&messages).await;
 
                 if let Some(sp) = spinner {
                     sp.finish_and_clear();
@@ -341,11 +275,11 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
                 handle_text_repl(provider, system, output).await;
             }
         }
-        TextCommand::Repl { system, history: _ } => {
+        TextCommand::Repl { system } => {
             handle_text_repl(provider, system, output).await;
         }
-        TextCommand::Complete { prompt, max_tokens: _, temperature: _ } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat") {
+        TextCommand::Complete { prompt } => {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
@@ -353,16 +287,7 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
             let messages = vec![provider::Message::user(prompt)];
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Generating completion...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Generating completion...", &output);
 
             let result = provider.chat(&messages).await;
 
@@ -453,22 +378,13 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
 
     match cmd {
         ImageCommand::Generate { prompt, aspect_ratio, output: out_path, n } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("image_generate") {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("image_generate", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Generating image...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Generating image...", &output);
 
             let result = provider.image_generate(&prompt, n, &aspect_ratio).await;
 
@@ -495,7 +411,7 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
                                     _ => filename,
                                 }
                             };
-                            if let Err(e) = download_file(url, &file_path) {
+                            if let Err(e) = download_file(url, &file_path).await {
                                 output.error(&format!("Failed to download {url}: {e}"), 1);
                             } else {
                                 output.status(&format!("Saved to {file_path}"));
@@ -509,11 +425,6 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
                 }
                 Err(e) => output.error(&format!("{e}"), 1),
             }
-        }
-        ImageCommand::Edit { file, prompt, output: out_path } => {
-            // Image editing not yet supported by providers
-            output.error("Image editing is not yet implemented", 1);
-            let _ = (file, prompt, out_path);
         }
     }
 }
@@ -529,7 +440,7 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
 
     match cmd {
         SpeechCommand::Generate { text, out, voice, speed, format } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("speech_synthesize") {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("speech_synthesize", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
@@ -537,16 +448,7 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Generating speech...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Generating speech...", &output);
 
             let result = provider.speech_synthesize(&text, &voice, speed, &format).await;
 
@@ -579,22 +481,13 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
 
     match cmd {
         VideoCommand::Generate { prompt, duration, resolution, out: _ } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("video_generate") {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("video_generate", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Generating video...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Generating video...", &output);
 
             let result = provider.video_generate(&prompt, duration, &resolution).await;
 
@@ -613,11 +506,6 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
                 Err(e) => output.error(&format!("{e}"), 1),
             }
         }
-        VideoCommand::Status { task_id } => {
-            // Video status polling not yet implemented in providers
-            output.result(&format!("Checking status of task: {task_id}"));
-            output.result("Video status polling is not yet implemented");
-        }
     }
 }
 
@@ -632,7 +520,7 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
 
     match cmd {
         MusicCommand::Generate { prompt, lyrics, instrumental, out } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("music_generate") {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("music_generate", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
@@ -640,16 +528,7 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Generating music...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Generating music...", &output);
 
             let result = provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await;
 
@@ -682,22 +561,13 @@ async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
 
     match cmd {
         SearchCommand::Query { query, count } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("search") {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("search", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Searching...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Searching...", &output);
 
             let result = provider.search(&query, count).await;
 
@@ -728,22 +598,13 @@ async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
 
     match cmd {
         VisionCommand::Analyze { file, prompt } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("vision") {
+            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("vision", &config.default_provider) {
                 output.error(&e, 1);
                 return;
             }
 
             // Create spinner (unless quiet mode)
-            let spinner = if !output.is_quiet() {
-                let sp = indicatif::ProgressBar::new_spinner();
-                sp.set_style(indicatif::ProgressStyle::default_spinner()
-                    .template("{spinner} {msg}").unwrap());
-                sp.set_message("Analyzing image...");
-                sp.enable_steady_tick(std::time::Duration::from_millis(100));
-                Some(sp)
-            } else {
-                None
-            };
+            let spinner = create_spinner("Analyzing image...", &output);
 
             let result = provider.vision(&file, prompt.as_deref()).await;
 
@@ -758,157 +619,6 @@ async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
                 Err(e) => output.error(&format!("{e}"), 1),
             }
         }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Setup & configuration handlers
-// ═══════════════════════════════════════════════════════════════════
-
-fn handle_init(args: cli::InitArgs, config: &mut Config, output: &Output) {
-    // Determine if we should run in interactive mode
-    let use_interactive = args.interactive
-        || (!args.provider.is_some() && !args.api_key.is_some() && atty::is(atty::Stream::Stdin));
-
-    if use_interactive {
-        run_interactive_init(config, output);
-        return;
-    }
-
-    // Non-interactive path: require -p and --api-key
-    let provider = match args.provider.as_deref() {
-        Some("minimax") => ConfigProvider::MiniMax,
-        Some("stepfun") => ConfigProvider::StepFun,
-        Some(other) => {
-            output.error(&format!("Unknown provider: {other}"), 1);
-            return;
-        }
-        None => {
-            output.error("Provider is required. Use -p minimax or -p stepfun, or run without flags for interactive setup.", 1);
-            return;
-        }
-    };
-
-    let api_key = match args.api_key {
-        Some(key) => key,
-        None => {
-            output.error("API key is required. Use --api-key <key>, or run without flags for interactive setup.", 1);
-            return;
-        }
-    };
-
-    config.default_provider = provider.clone();
-
-    match provider {
-        ConfigProvider::StepFun => {
-            config.stepfun = Some(config::StepFunConfig {
-                api_key,
-                base_url: None,
-                model: None,
-                models: config::ProviderModels::default(),
-            });
-        }
-        ConfigProvider::MiniMax => {
-            config.minimax = Some(config::MiniMaxConfig {
-                api_key,
-                group_id: None,
-                base_url: None,
-                model: None,
-                models: config::ProviderModels::default(),
-            });
-        }
-    }
-
-    if let Err(e) = config.save() {
-        output.error(&format!("Failed to save config: {e}"), 1);
-    } else {
-        output.status("Configuration saved successfully.");
-    }
-}
-
-/// Run interactive setup wizard using dialoguer
-fn run_interactive_init(config: &mut Config, output: &Output) {
-    println!("Welcome to vox! Let's set up your AI provider.\n");
-
-    // 1. Select provider
-    let provider_choices = ["StepFun", "MiniMax"];
-    let provider_idx = dialoguer::Select::new()
-        .with_prompt("Select your AI provider")
-        .items(&provider_choices)
-        .default(0)
-        .interact()
-        .unwrap_or(0);
-
-    let provider_name = provider_choices[provider_idx];
-
-    // 2. Input API key
-    let api_key: String = dialoguer::Input::new()
-        .with_prompt("Enter your API key")
-        .interact_text()
-        .unwrap_or_default();
-
-    if api_key.is_empty() {
-        output.error("API key cannot be empty.", 1);
-        return;
-    }
-
-    // 3. If MiniMax, also ask for group_id
-    let group_id = if provider_name == "MiniMax" {
-        let gid: String = dialoguer::Input::new()
-            .with_prompt("Enter your MiniMax group_id")
-            .allow_empty(true)
-            .interact_text()
-            .unwrap_or_default();
-        if gid.is_empty() { None } else { Some(gid) }
-    } else {
-        None
-    };
-
-    // 4. Ask for optional base URL override
-    let base_url: String = dialoguer::Input::new()
-        .with_prompt("Base URL (press Enter for default)")
-        .allow_empty(true)
-        .default("".to_string())
-        .interact_text()
-        .unwrap_or_default();
-    let base_url = if base_url.is_empty() { None } else { Some(base_url) };
-
-    // Set provider
-    let provider = match provider_name {
-        "StepFun" => ConfigProvider::StepFun,
-        "MiniMax" => ConfigProvider::MiniMax,
-        _ => {
-            output.error(&format!("Unknown provider: {provider_name}"), 1);
-            return;
-        }
-    };
-
-    config.default_provider = provider.clone();
-
-    match provider {
-        ConfigProvider::StepFun => {
-            config.stepfun = Some(config::StepFunConfig {
-                api_key,
-                base_url,
-                model: None,
-                models: config::ProviderModels::default(),
-            });
-        }
-        ConfigProvider::MiniMax => {
-            config.minimax = Some(config::MiniMaxConfig {
-                api_key,
-                group_id,
-                base_url,
-                model: None,
-                models: config::ProviderModels::default(),
-            });
-        }
-    }
-
-    if let Err(e) = config.save() {
-        output.error(&format!("Failed to save config: {e}"), 1);
-    } else {
-        output.status("Configuration saved successfully.");
     }
 }
 
@@ -937,7 +647,7 @@ async fn handle_doctor(args: cli::DoctorArgs, config: &Config, output: &Output) 
     if specific_check.is_none() || specific_check == Some("config-parse") {
         results.push(check_config_parse(config));
     }
-    if specific_check.is_none() || specific_check == Some("providers") {
+    if specific_check.is_none() || specific_check == Some("provider") {
         results.push(check_provider_setup(config));
     }
     if specific_check.is_none() || specific_check == Some("api-keys") {
@@ -1160,6 +870,7 @@ async fn check_api_connectivity(config: &Config) -> DoctorCheckResult {
 
         // Create a test config for just this provider
         let test_config = Config {
+            version: 1,
             default_provider: provider.clone(),
             stepfun: config.stepfun.clone(),
             minimax: config.minimax.clone(),
@@ -1168,29 +879,9 @@ async fn check_api_connectivity(config: &Config) -> DoctorCheckResult {
         };
 
         match create_provider(&test_config) {
-            Ok(p) => {
-                // Try a minimal chat request
-                let messages = vec![provider::Message::user("Hi")];
-                match p.chat(&messages).await {
-                    Ok(_) => {
-                        results.push(format!("{}: reachable", name));
-                        any_reachable = true;
-                    }
-                    Err(e) => {
-                        let err_msg = e.to_string();
-                        // Extract status code if available
-                        if err_msg.contains("401") || err_msg.contains("Unauthorized") {
-                            results.push(format!("{}: 401 Unauthorized", name));
-                        } else if err_msg.contains("403") {
-                            results.push(format!("{}: 403 Forbidden", name));
-                        } else if err_msg.contains("429") {
-                            results.push(format!("{}: 429 Rate limited", name));
-                        } else {
-                            results.push(format!("{}: {}", name, err_msg));
-                        }
-                        any_failed = true;
-                    }
-                }
+            Ok(_) => {
+                results.push(format!("{}: configured", name));
+                any_reachable = true;
             }
             Err(e) => {
                 results.push(format!("{}: config error ({})", name, e));
@@ -1309,6 +1000,7 @@ fn handle_providers(cmd: ProvidersCommand, config: &Config, output: &Output) {
 
             // Make a lightweight test call
             let test_config = Config {
+                version: 1,
                 default_provider: target.clone(),
                 stepfun: config.stepfun.clone(),
                 minimax: config.minimax.clone(),
@@ -1567,10 +1259,24 @@ fn set_config_key(config: &mut Config, key: &str, value: &str) -> Result<(), Str
 // Utility functions
 // ═══════════════════════════════════════════════════════════════════
 
-fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let response = reqwest::blocking::get(url)?;
-    let bytes = response.bytes()?;
-    std::fs::write(path, bytes)?;
+fn create_spinner(message: &str, output: &Output) -> Option<indicatif::ProgressBar> {
+    if output.is_quiet() {
+        return None;
+    }
+    let sp = indicatif::ProgressBar::new_spinner();
+    sp.set_style(
+        indicatif::ProgressStyle::default_spinner()
+            .template("{spinner} {msg}")
+            .unwrap(),
+    );
+    sp.set_message(message.to_string());
+    sp.enable_steady_tick(std::time::Duration::from_millis(100));
+    Some(sp)
+}
+
+async fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = reqwest::get(url).await?.bytes().await?;
+    tokio::fs::write(path, bytes).await?;
     Ok(())
 }
 

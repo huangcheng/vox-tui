@@ -4,11 +4,13 @@ use crate::config::Provider;
 /// This lives in CODE, not config — updated with each CLI release.
 pub struct KnownModels {
     pub models: &'static [&'static str],
+    #[allow(dead_code)] // used by tests and future default-model logic
     pub default: &'static str,
 }
 
 impl KnownModels {
     /// Check if a model name is in the known list.
+    #[allow(dead_code)] // used by tests
     pub fn is_known(&self, model: &str) -> bool {
         self.models.contains(&model)
     }

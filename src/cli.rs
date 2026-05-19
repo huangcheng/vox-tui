@@ -49,10 +49,6 @@ pub struct GlobalOpts {
     #[arg(long, default_value_t = false)]
     pub verbose: bool,
 
-    /// Request timeout in seconds
-    #[arg(long, default_value_t = 120)]
-    pub timeout: u64,
-
     /// Disable colored output
     #[arg(long, default_value_t = false)]
     pub no_color: bool,
@@ -90,14 +86,11 @@ pub enum Commands {
     Vision(VisionCommand),
 
     // ── Setup & configuration ────────────────────────────────────────
-    /// Initialize vox with your API keys
-    Init(InitArgs),
-
     /// Run diagnostics and report issues
     Doctor(DoctorArgs),
 
     /// Manage provider configurations
-    #[command(subcommand)]
+    #[command(subcommand, name = "provider")]
     Providers(ProvidersCommand),
 
     /// Manage model selections
@@ -114,24 +107,6 @@ pub enum Commands {
         shell: String,
     },
 
-    // ── Legacy backward-compat commands (hidden) ─────────────────────
-    #[command(hide = true, name = "image-legacy")]
-    LegacyImage(LegacyImageArgs),
-
-    #[command(hide = true, name = "speech-legacy")]
-    LegacySpeech(LegacySpeechArgs),
-
-    #[command(hide = true, name = "video-legacy")]
-    LegacyVideo(LegacyVideoArgs),
-
-    #[command(hide = true, name = "music-legacy")]
-    LegacyMusic(LegacyMusicArgs),
-
-    #[command(hide = true, name = "search-legacy")]
-    LegacySearch(LegacySearchArgs),
-
-    #[command(hide = true, name = "vision-legacy")]
-    LegacyVision(LegacyVisionArgs),
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -149,37 +124,17 @@ pub enum TextCommand {
         /// System prompt
         #[arg(long)]
         system: Option<String>,
-
-        /// Conversation history file (JSON)
-        #[arg(long)]
-        history: Option<String>,
-
-        /// Stream the response
-        #[arg(long, default_value_t = false)]
-        stream: bool,
     },
     /// Start an interactive chat session
     Repl {
         /// System prompt
         #[arg(long)]
         system: Option<String>,
-
-        /// Conversation history file (JSON)
-        #[arg(long)]
-        history: Option<String>,
     },
     /// Complete text from a prompt
     Complete {
         /// The prompt to complete
         prompt: String,
-
-        /// Maximum tokens to generate
-        #[arg(long, default_value_t = 256)]
-        max_tokens: u32,
-
-        /// Sampling temperature (0-2)
-        #[arg(long, default_value_t = 0.7)]
-        temperature: f64,
     },
 }
 
@@ -205,19 +160,6 @@ pub enum ImageCommand {
         /// Number of images to generate (1-9)
         #[arg(long, short, default_value_t = 1)]
         n: u8,
-    },
-    /// Edit an existing image
-    Edit {
-        /// Path to the source image
-        file: String,
-
-        /// Edit instruction/prompt
-        #[arg(long, short)]
-        prompt: String,
-
-        /// Output file path
-        #[arg(long, short)]
-        output: Option<String>,
     },
 }
 
@@ -274,11 +216,6 @@ pub enum VideoCommand {
         /// Output file path
         #[arg(long, short)]
         out: Option<String>,
-    },
-    /// Check the status of a video generation task
-    Status {
-        /// Task ID from a previous generation
-        task_id: String,
     },
 }
 
@@ -340,25 +277,6 @@ pub enum VisionCommand {
         #[arg(long, short)]
         prompt: Option<String>,
     },
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Setup command args
-// ═══════════════════════════════════════════════════════════════════
-
-#[derive(Args, Debug, Clone)]
-pub struct InitArgs {
-    /// Provider to set up (minimax, stepfun)
-    #[arg(short, long)]
-    pub provider: Option<String>,
-
-    /// API key for the provider
-    #[arg(long)]
-    pub api_key: Option<String>,
-
-    /// Interactive mode (prompts for values)
-    #[arg(long, default_value_t = false)]
-    pub interactive: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -436,105 +354,6 @@ pub enum ConfigCommand {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Legacy backward-compat arg structs
-// ═══════════════════════════════════════════════════════════════════
-
-#[derive(Args, Debug, Clone)]
-pub struct LegacyImageArgs {
-    /// The prompt describing the desired image
-    pub prompt: String,
-
-    /// Aspect ratio (1:1, 16:9, 4:3, 3:2, 2:3, 3:4, 9:16, 21:9)
-    #[arg(long, default_value = "1:1")]
-    pub aspect_ratio: String,
-
-    /// Output file path
-    #[arg(long, short)]
-    pub output: Option<String>,
-
-    /// Number of images to generate (1-9)
-    #[arg(long, default_value_t = 1)]
-    pub n: u8,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct LegacySpeechArgs {
-    /// Text to synthesize
-    #[arg(long, short)]
-    pub text: String,
-
-    /// Output file path
-    #[arg(long, short)]
-    pub out: Option<String>,
-
-    /// Voice ID to use
-    #[arg(long, default_value = "English_expressive_narrator")]
-    pub voice: String,
-
-    /// Speed (0.5-2.0)
-    #[arg(long, default_value_t = 1.0)]
-    pub speed: f64,
-
-    /// Output format (mp3, wav, flac, pcm, opus)
-    #[arg(long, default_value = "mp3")]
-    pub format: String,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct LegacyVideoArgs {
-    /// The prompt describing the desired video
-    #[arg(long, short)]
-    pub prompt: String,
-
-    /// Duration in seconds (6 or 10)
-    #[arg(long, default_value_t = 6)]
-    pub duration: u8,
-
-    /// Resolution (720P, 768P, 1080P)
-    #[arg(long, default_value = "720P")]
-    pub resolution: String,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct LegacyMusicArgs {
-    /// Style description
-    #[arg(long)]
-    pub prompt: String,
-
-    /// Song lyrics with structure tags [Verse], [Chorus], etc.
-    #[arg(long)]
-    pub lyrics: Option<String>,
-
-    /// Generate instrumental only (no vocals)
-    #[arg(long, default_value_t = false)]
-    pub instrumental: bool,
-
-    /// Output file path
-    #[arg(long, short)]
-    pub out: Option<String>,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct LegacySearchArgs {
-    /// Search query
-    pub query: String,
-
-    /// Number of results (1-10)
-    #[arg(long, default_value_t = 5)]
-    pub count: u8,
-}
-
-#[derive(Args, Debug, Clone)]
-pub struct LegacyVisionArgs {
-    /// Path to the image file
-    pub file: String,
-
-    /// Question to ask about the image
-    #[arg(long, short)]
-    pub prompt: Option<String>,
-}
-
-// ═══════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════
 
@@ -548,11 +367,9 @@ mod tests {
             "vox", "text", "chat", "--message", "hello world",
         ]).unwrap();
         match cli.command {
-            Some(Commands::Text(TextCommand::Chat { message, system, history, stream })) => {
+            Some(Commands::Text(TextCommand::Chat { message, system })) => {
                 assert_eq!(message, Some("hello world".to_string()));
                 assert!(system.is_none());
-                assert!(history.is_none());
-                assert!(!stream);
             }
             _ => panic!("Expected Text Chat command"),
         }
@@ -573,9 +390,8 @@ mod tests {
     fn test_text_repl() {
         let cli = Cli::try_parse_from(["vox", "text", "repl"]).unwrap();
         match cli.command {
-            Some(Commands::Text(TextCommand::Repl { system, history })) => {
+            Some(Commands::Text(TextCommand::Repl { system })) => {
                 assert!(system.is_none());
-                assert!(history.is_none());
             }
             _ => panic!("Expected Text Repl command"),
         }
@@ -585,9 +401,8 @@ mod tests {
     fn test_text_repl_with_system() {
         let cli = Cli::try_parse_from(["vox", "text", "repl", "--system", "You are a helpful assistant"]).unwrap();
         match cli.command {
-            Some(Commands::Text(TextCommand::Repl { system, history })) => {
+            Some(Commands::Text(TextCommand::Repl { system })) => {
                 assert_eq!(system, Some("You are a helpful assistant".to_string()));
-                assert!(history.is_none());
             }
             _ => panic!("Expected Text Repl command"),
         }
@@ -599,10 +414,8 @@ mod tests {
             "vox", "text", "complete", "The future of AI",
         ]).unwrap();
         match cli.command {
-            Some(Commands::Text(TextCommand::Complete { prompt, max_tokens, temperature })) => {
+            Some(Commands::Text(TextCommand::Complete { prompt })) => {
                 assert_eq!(prompt, "The future of AI");
-                assert_eq!(max_tokens, 256);
-                assert!((temperature - 0.7).abs() < f64::EPSILON);
             }
             _ => panic!("Expected Text Complete command"),
         }
@@ -622,21 +435,6 @@ mod tests {
                 assert_eq!(n, 2);
             }
             _ => panic!("Expected Image Generate command"),
-        }
-    }
-
-    #[test]
-    fn test_image_edit() {
-        let cli = Cli::try_parse_from([
-            "vox", "image", "edit", "photo.jpg", "-p", "make it black and white",
-        ]).unwrap();
-        match cli.command {
-            Some(Commands::Image(ImageCommand::Edit { file, prompt, output })) => {
-                assert_eq!(file, "photo.jpg");
-                assert_eq!(prompt, "make it black and white");
-                assert!(output.is_none());
-            }
-            _ => panic!("Expected Image Edit command"),
         }
     }
 
@@ -672,19 +470,6 @@ mod tests {
                 assert_eq!(out, Some("waves.mp4".to_string()));
             }
             _ => panic!("Expected Video Generate command"),
-        }
-    }
-
-    #[test]
-    fn test_video_status() {
-        let cli = Cli::try_parse_from([
-            "vox", "video", "status", "task-12345",
-        ]).unwrap();
-        match cli.command {
-            Some(Commands::Video(VideoCommand::Status { task_id })) => {
-                assert_eq!(task_id, "task-12345");
-            }
-            _ => panic!("Expected Video Status command"),
         }
     }
 
@@ -803,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_providers_list() {
-        let cli = Cli::try_parse_from(["vox", "providers", "list"]).unwrap();
+        let cli = Cli::try_parse_from(["vox", "provider", "list"]).unwrap();
         match cli.command {
             Some(Commands::Providers(ProvidersCommand::List)) => {}
             _ => panic!("Expected Providers List command"),
@@ -812,27 +597,12 @@ mod tests {
 
     #[test]
     fn test_providers_status() {
-        let cli = Cli::try_parse_from(["vox", "providers", "status", "-p", "minimax"]).unwrap();
+        let cli = Cli::try_parse_from(["vox", "provider", "status", "-p", "minimax"]).unwrap();
         match cli.command {
             Some(Commands::Providers(ProvidersCommand::Status { provider })) => {
                 assert_eq!(provider, Some("minimax".to_string()));
             }
             _ => panic!("Expected Providers Status command"),
-        }
-    }
-
-    #[test]
-    fn test_init() {
-        let cli = Cli::try_parse_from([
-            "vox", "init", "-p", "stepfun", "--api-key", "sk-test",
-        ]).unwrap();
-        match cli.command {
-            Some(Commands::Init(args)) => {
-                assert_eq!(args.provider, Some("stepfun".to_string()));
-                assert_eq!(args.api_key, Some("sk-test".to_string()));
-                assert!(!args.interactive);
-            }
-            _ => panic!("Expected Init command"),
         }
     }
 
@@ -860,38 +630,10 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_image() {
-        let cli = Cli::try_parse_from([
-            "vox", "image-legacy", "a cat", "--aspect-ratio", "4:3",
-        ]).unwrap();
-        match cli.command {
-            Some(Commands::LegacyImage(args)) => {
-                assert_eq!(args.prompt, "a cat");
-                assert_eq!(args.aspect_ratio, "4:3");
-            }
-            _ => panic!("Expected LegacyImage command"),
-        }
-    }
-
-    #[test]
-    fn test_legacy_speech() {
-        let cli = Cli::try_parse_from([
-            "vox", "speech-legacy", "--text", "Hello",
-        ]).unwrap();
-        match cli.command {
-            Some(Commands::LegacySpeech(args)) => {
-                assert_eq!(args.text, "Hello");
-            }
-            _ => panic!("Expected LegacySpeech command"),
-        }
-    }
-
-    #[test]
     fn test_global_opts() {
         let cli = Cli::try_parse_from([
             "vox", "--provider", "stepfun", "--model", "step-1-8k",
             "--quiet", "--verbose", "--no-color", "--format", "json",
-            "--timeout", "60",
         ]).unwrap();
         assert_eq!(cli.global.provider, Some("stepfun".to_string()));
         assert_eq!(cli.global.model, Some("step-1-8k".to_string()));
@@ -899,25 +641,11 @@ mod tests {
         assert!(cli.global.verbose);
         assert!(cli.global.no_color);
         assert_eq!(cli.global.format, "json");
-        assert_eq!(cli.global.timeout, 60);
     }
 
     #[test]
     fn test_no_command_shows_help() {
         let cli = Cli::try_parse_from(["vox"]).unwrap();
         assert!(cli.command.is_none());
-    }
-
-    #[test]
-    fn test_legacy_commands_are_hidden() {
-        // Verify legacy commands parse but aren't in help
-        let cmd = Commands::LegacyImage(LegacyImageArgs {
-            prompt: "test".into(),
-            aspect_ratio: "1:1".into(),
-            output: None,
-            n: 1,
-        });
-        // Should not panic - just verifying the variant exists
-        let _ = format!("{:?}", cmd);
     }
 }
