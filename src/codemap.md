@@ -1,4 +1,4 @@
-# vox-tui — Source Code Codemap
+# vox — Source Code Codemap
 
 > Multi-provider AI multimedia CLI & TUI application supporting StepFun and MiniMax providers.
 

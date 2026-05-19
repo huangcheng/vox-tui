@@ -1,4 +1,4 @@
-# vox-tui — 多模型 AI 多媒体命令行工具
+# vox — 多模型 AI 多媒体命令行工具
 
 基于 Rust 的统一 AI 接口 CLI，支持阶跃星辰（StepFun）和 MiniMax 两大提供商，覆盖文本、图像、语音、视频、音乐、搜索、视觉理解七项能力。
 
@@ -18,8 +18,8 @@
 ## 安装
 
 ```bash
-git clone https://github.com/huangcheng/vox-tui.git
-cd vox-tui
+git clone https://github.com/huangcheng/vox.git
+cd vox
 cargo build --release
 # 二进制文件位于 target/release/vox
 ```

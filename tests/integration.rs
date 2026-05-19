@@ -1,6 +1,6 @@
 use std::process::Command;
-use vox_tui::config::{Config, MiniMaxConfig, Provider, ProviderModels, StepFunConfig};
-use vox_tui::providers::{create_provider, Message};
+use vox::config::{Config, MiniMaxConfig, Provider, ProviderModels, StepFunConfig};
+use vox::providers::{create_provider, Message};
 
 #[test]
 fn test_binary_runs() {

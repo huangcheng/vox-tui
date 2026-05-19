@@ -1,4 +1,4 @@
-# Repository Atlas: vox-tui
+# Repository Atlas: vox
 
 ## Project Responsibility
 A multi-provider AI multimedia CLI and TUI application written in Rust. Provides a unified interface to StepFun and MiniMax AI services for text chat, image generation, speech synthesis, video generation, music generation, web search, and image vision analysis. Supports both a traditional CLI mode and an optional terminal UI (TUI) mode.

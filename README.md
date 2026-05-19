@@ -1,4 +1,4 @@
-# vox-tui — Multi-Provider AI Multimedia CLI
+# vox — Multi-Provider AI Multimedia CLI
 
 A Rust CLI that provides a unified interface to multiple AI providers (StepFun, MiniMax) for text, image, speech, video, music, search, and vision capabilities.
 
@@ -18,8 +18,8 @@ A Rust CLI that provides a unified interface to multiple AI providers (StepFun, 
 ## Install
 
 ```bash
-git clone https://github.com/huangcheng/vox-tui.git
-cd vox-tui
+git clone https://github.com/huangcheng/vox.git
+cd vox
 cargo build --release
 # Binary at target/release/vox
 ```

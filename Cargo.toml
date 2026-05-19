@@ -1,5 +1,5 @@
 [package]
-name = "vox-tui"
+name = "vox"
 version = "0.1.0"
 edition = "2024"
 description = "Multi-Provider AI Multimedia CLI"
@@ -10,7 +10,7 @@ default = []
 tui = ["dep:ratatui", "dep:crossterm", "dep:ratatui-image", "dep:image"]
 
 [lib]
-name = "vox_tui"
+name = "vox"
 path = "src/lib.rs"
 
 [[bin]]

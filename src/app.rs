@@ -44,7 +44,7 @@ impl AppState {
 
         Self {
             running: true,
-            status: "vox-tui — 1-4: switch view, Tab/⇧Tab: next/prev, Enter: send, q/Ctrl+C: quit".into(),
+            status: "vox — 1-4: switch view, Tab/⇧Tab: next/prev, Enter: send, q/Ctrl+C: quit".into(),
             current_view: View::default(),
             input_mode: InputMode::Normal,
             input: TextInputState::new(),
@@ -427,7 +427,7 @@ impl AppState {
                         if let Some(url) = response.urls.first() {
                             if let Ok(resp) = reqwest::get(url).await {
                                 if let Ok(bytes) = resp.bytes().await {
-                                    let path = image_save_path().unwrap_or_else(|| std::env::temp_dir().join("vox-tui-last-image.png"));
+                                    let path = image_save_path().unwrap_or_else(|| std::env::temp_dir().join("vox-last-image.png"));
                                     let _ = std::fs::write(&path, &bytes);
                                     let _ = open::that(&path);
                                     WorkResult::ImageDownloaded { image_data: bytes.to_vec() }

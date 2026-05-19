@@ -1,4 +1,4 @@
-# vox-tui Configuration
+# vox Configuration
 # Copy this file to ~/.config/vox/config.toml (macOS/Linux) or %APPDATA%/vox/config.toml (Windows)
 
 # Active provider: "stepfun" or "minimax"

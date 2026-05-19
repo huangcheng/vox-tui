@@ -1,6 +1,6 @@
 # UI Codemap — `src/ui/`
 
-The TUI rendering layer for `vox-tui`, a multi-provider AI multimedia CLI. Built with **ratatui** + **crossterm**, gated behind the `tui` cargo feature.
+The TUI rendering layer for `vox`, a multi-provider AI multimedia CLI. Built with **ratatui** + **crossterm**, gated behind the `tui` cargo feature.
 
 ---
 
