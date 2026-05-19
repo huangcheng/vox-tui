@@ -44,6 +44,10 @@ pub struct GlobalOpts {
     /// Disable colored output
     #[arg(long, default_value_t = false)]
     pub no_color: bool,
+
+    /// Launch the terminal UI (requires tui feature)
+    #[arg(long, default_value_t = false)]
+    pub tui: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -693,5 +697,13 @@ mod tests {
     fn test_no_command_shows_help() {
         let cli = Cli::try_parse_from(["vox"]).unwrap();
         assert!(cli.command.is_none());
+        assert!(!cli.global.tui);
+    }
+
+    #[test]
+    fn test_tui_flag() {
+        let cli = Cli::try_parse_from(["vox", "--tui"]).unwrap();
+        assert!(cli.command.is_none());
+        assert!(cli.global.tui);
     }
 }

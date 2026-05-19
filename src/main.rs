@@ -30,17 +30,22 @@ async fn main() -> std::io::Result<()> {
 
     if cli.command.is_some() {
         run_cli(cli).await
-    } else {
+    } else if cli.global.tui {
         #[cfg(feature = "tui")]
         {
             run_tui().await
         }
         #[cfg(not(feature = "tui"))]
         {
-            eprintln!("vox: no subcommand given. TUI is not enabled in this build.");
-            eprintln!("Run `vox --help` for available commands.");
+            eprintln!("vox: TUI is not enabled in this build.");
+            eprintln!("Rebuild with: cargo build --features tui");
             std::process::exit(1);
         }
+    } else {
+        // No subcommand and no --tui: print help
+        Cli::command().print_help().unwrap();
+        println!();
+        Ok(())
     }
 }
 
