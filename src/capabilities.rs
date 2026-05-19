@@ -22,7 +22,11 @@ impl ProviderCapabilities {
     }
 
     /// Check if a capability is supported. Returns error message if not.
-    pub fn require(&self, capability: &str) -> Result<(), String> {
+    pub fn require(&self, capability: &str, provider: &crate::config::Provider) -> Result<(), String> {
+        let provider_name = match provider {
+            crate::config::Provider::StepFun => "StepFun",
+            crate::config::Provider::MiniMax => "MiniMax",
+        };
         let supported = match capability {
             "chat" => self.chat,
             "image_generate" => self.image_generate,
@@ -36,7 +40,7 @@ impl ProviderCapabilities {
         if supported {
             Ok(())
         } else {
-            Err(format!("does not support {capability}"))
+            Err(format!("{provider_name} does not support {capability}"))
         }
     }
 }
@@ -85,12 +89,14 @@ mod tests {
     #[test]
     fn test_require_supported() {
         let cap = ProviderCapabilities::for_provider(&Provider::MiniMax);
-        assert!(cap.require("video_generate").is_ok());
+        assert!(cap.require("video_generate", &Provider::MiniMax).is_ok());
     }
 
     #[test]
     fn test_require_unsupported() {
         let cap = ProviderCapabilities::for_provider(&Provider::StepFun);
-        assert!(cap.require("video_generate").is_err());
+        let result = cap.require("video_generate", &Provider::StepFun);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("StepFun does not support video_generate"));
     }
 }

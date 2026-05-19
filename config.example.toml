@@ -13,9 +13,8 @@ api_key = "sk-your-api-key-here"
 # MiniMax Configuration
 [minimax]
 api_key = "your-minimax-api-key-here"
-# group_id = "your-group-id"  # Optional
-# base_url = "https://api.minimax.chat/v1"  # Optional custom URL
-# model = "abab6.5s-chat"  # Optional custom model
+# base_url = "https://api.minimaxi.com/v1"  # Optional custom URL
+# model = "MiniMax-M2.7"  # Optional custom model
 
 # Theme Configuration (optional)
 [theme]

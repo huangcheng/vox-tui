@@ -1,6 +1,6 @@
 use std::process::Command;
 use vox_tui::config::{Config, MiniMaxConfig, Provider, ProviderModels, StepFunConfig};
-use vox_tui::provider::{create_provider, Message};
+use vox_tui::providers::{create_provider, Message};
 
 #[test]
 fn test_binary_runs() {
@@ -56,6 +56,7 @@ async fn test_stepfun_chat_success() {
         .await;
 
     let config = Config {
+        version: 1,
         default_provider: Provider::StepFun,
         stepfun: Some(StepFunConfig {
             api_key: "test-key".into(),
@@ -91,6 +92,7 @@ async fn test_stepfun_chat_error_5xx() {
         .await;
 
     let config = Config {
+        version: 1,
         default_provider: Provider::StepFun,
         stepfun: Some(StepFunConfig {
             api_key: "test-key".into(),
@@ -121,13 +123,22 @@ async fn test_stepfun_chat_error_5xx() {
 async fn test_minimax_chat_success() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/text/chat")
+        .mock("POST", "/v1/chat/completions")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
             r#"{
-            "reply": "Hello from MiniMax mock!",
+            "id": "chatcmpl-123",
             "model": "test-model",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello from MiniMax mock!"
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
             "usage": {
                 "prompt_tokens": 10,
                 "completion_tokens": 5,
@@ -139,11 +150,12 @@ async fn test_minimax_chat_success() {
         .await;
 
     let config = Config {
+        version: 1,
         default_provider: Provider::MiniMax,
         stepfun: None,
         minimax: Some(MiniMaxConfig {
             api_key: "test-key".into(),
-            group_id: Some("test-group".into()),
+            group_id: None,
             base_url: Some(server.url()),
             model: Some("test-model".into()),
             models: ProviderModels::default(),
@@ -167,31 +179,27 @@ async fn test_minimax_chat_success() {
 async fn test_minimax_image_generation_success() {
     let mut server = mockito::Server::new_async().await;
     let mock = server
-        .mock("POST", "/image_generation")
-        .match_query(mockito::Matcher::UrlEncoded(
-            "GroupId".into(),
-            "test-group".into(),
-        ))
+        .mock("POST", "/v1/image_generation")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
             r#"{
             "data": {
-                "image_urls": [
-                    {"image_url": "https://example.com/image1.png"}
-                ]
-            }
+                "image_urls": ["https://example.com/image1.png"]
+            },
+            "base_resp": { "status_code": 0 }
         }"#,
         )
         .create_async()
         .await;
 
     let config = Config {
+        version: 1,
         default_provider: Provider::MiniMax,
         stepfun: None,
         minimax: Some(MiniMaxConfig {
             api_key: "test-key".into(),
-            group_id: Some("test-group".into()),
+            group_id: None,
             base_url: Some(server.url()),
             model: Some("test-model".into()),
             models: ProviderModels::default(),
@@ -205,7 +213,5 @@ async fn test_minimax_image_generation_success() {
 
     assert!(result.is_ok(), "Expected success, got: {:?}", result);
     let response = result.unwrap();
-    assert_eq!(response.urls, vec!["https://example.com/image1.png"]);
-
-    mock.assert_async().await;
+    assert_eq!(response.urls, vec!["https://example.com/image1.png"]);    mock.assert_async().await;
 }

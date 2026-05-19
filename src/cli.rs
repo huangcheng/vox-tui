@@ -172,7 +172,7 @@ pub enum SpeechCommand {
         out: Option<String>,
 
         /// Voice ID to use
-        #[arg(long, default_value = "English_expressive_narrator")]
+        #[arg(long, default_value = "cixingnansheng")]
         voice: String,
 
         /// Speed (0.5-2.0)

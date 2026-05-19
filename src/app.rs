@@ -1,7 +1,7 @@
 use crate::command::{self, SlashCommand};
 use crate::config::{Config, ConfigEditor, Provider as ConfigProvider};
 use crate::input::{self, InputMode, TextInputState};
-use crate::provider::{create_provider, WorkResult};
+use crate::providers::{create_provider, WorkResult};
 use crate::ui::widget::{ChatMessage, MessageRole};
 use crate::ui::View;
 
@@ -386,11 +386,11 @@ impl AppState {
         self.status = "Waiting for response...".into();
         self.scroll_offset = u16::MAX;
 
-        let provider_messages: Vec<crate::provider::Message> = self.messages.iter().map(|m| {
+        let provider_messages: Vec<crate::providers::Message> = self.messages.iter().map(|m| {
             match m.role {
-                MessageRole::User => crate::provider::Message::user(&m.content),
-                MessageRole::Assistant => crate::provider::Message::assistant(&m.content),
-                MessageRole::System => crate::provider::Message::system(&m.content),
+                MessageRole::User => crate::providers::Message::user(&m.content),
+                MessageRole::Assistant => crate::providers::Message::assistant(&m.content),
+                MessageRole::System => crate::providers::Message::system(&m.content),
             }
         }).collect();
 
@@ -470,13 +470,6 @@ impl AppState {
             };
             let _ = tx.send(result).await;
         });
-    }
-
-    #[allow(dead_code)]
-    pub fn append_stream(&mut self, text: &str) {
-        if let Some(last) = self.messages.last_mut() {
-            last.content.push_str(text);
-        }
     }
 
     pub fn handle_slash_command(&mut self, cmd: SlashCommand) {
@@ -758,14 +751,6 @@ mod tests {
         assert_eq!(app.scroll_offset, 1);
         app.handle_input(input::InputAction::ScrollUp);
         assert_eq!(app.scroll_offset, 0);
-    }
-
-    #[test]
-    fn test_app_state_append_stream() {
-        let mut app = AppState::new();
-        app.messages.push(ChatMessage::assistant("Hello"));
-        app.append_stream(" World");
-        assert_eq!(app.messages[0].content, "Hello World");
     }
 
     #[test]

@@ -22,20 +22,20 @@ base_url = "https://api.stepfun.com/v1"
 [stepfun.models]
 chat = "step-1-8k"
 image = "step-image-edit-2"
-speech = "step-tts-2"
+speech = "stepaudio-2.5-tts"
 vision = "step-1v-8k"
 search = "step-search"
 
 [minimax]
-base_url = "https://api.minimax.chat/v1"
+base_url = "https://api.minimaxi.com/v1"
 
 [minimax.models]
 chat = "MiniMax-M2.7"
 image = "image-01"
-speech = "speech-01"
+speech = "speech-2.8-hd"
 video = "MiniMax-Hailuo-2.3"
 music = "music-2.6"
-vision = "vision-01"
+vision = "MiniMax-M2.7"
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -226,7 +226,7 @@ impl Config {
                 sf.models.chat = Some("step-1-8k".to_string());
             }
             if sf.models.speech.is_none() {
-                sf.models.speech = Some("step-tts-2".to_string());
+                sf.models.speech = Some("stepaudio-2.5-tts".to_string());
             }
             if sf.models.vision.is_none() {
                 sf.models.vision = Some("step-1v-8k".to_string());
@@ -248,8 +248,8 @@ impl Config {
             }
             // Fix deprecated speech model names
             if let Some(ref mut speech) = sf.models.speech {
-                if speech == "step-tts" {
-                    *speech = "step-tts-2".to_string();
+                if speech == "step-tts" || speech == "step-tts-2" {
+                    *speech = "stepaudio-2.5-tts".to_string();
                 }
             }
         }
@@ -262,7 +262,13 @@ impl Config {
                 mm.models.image = Some("image-01".to_string());
             }
             if mm.models.speech.is_none() {
-                mm.models.speech = Some("speech-01".to_string());
+                mm.models.speech = Some("speech-2.8-hd".to_string());
+            }
+            // Migrate old speech model to new default
+            if let Some(ref mut speech) = mm.models.speech {
+                if speech == "speech-01" {
+                    *speech = "speech-2.8-hd".to_string();
+                }
             }
             if mm.models.video.is_none() {
                 mm.models.video = Some("MiniMax-Hailuo-2.3".to_string());
@@ -271,7 +277,13 @@ impl Config {
                 mm.models.music = Some("music-2.6".to_string());
             }
             if mm.models.vision.is_none() {
-                mm.models.vision = Some("vision-01".to_string());
+                mm.models.vision = Some("MiniMax-M2.7".to_string());
+            }
+            // Migrate old base URL to new domain (api.minimax.chat → api.minimaxi.com)
+            if let Some(ref mut url) = mm.base_url {
+                if url.contains("api.minimax.chat") {
+                    *url = url.replace("api.minimax.chat", "api.minimaxi.com");
+                }
             }
         }
     }

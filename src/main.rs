@@ -1,12 +1,10 @@
 mod capabilities;
 mod config;
-pub mod minimax;
 mod models;
 mod output;
-pub mod provider;
+pub mod providers;
 pub mod cli;
 pub mod command;
-mod stepfun;
 
 #[cfg(feature = "tui")]
 mod app;
@@ -22,7 +20,7 @@ use std::io;
 use crate::cli::{Cli, Commands, GlobalOpts, TextCommand, ImageCommand, SpeechCommand, VideoCommand, MusicCommand, SearchCommand, VisionCommand, ProvidersCommand, ModelsCommand, ConfigCommand};
 use crate::config::{Config, Provider as ConfigProvider};
 use crate::output::{Output, OutputFormat};
-use crate::provider::create_provider;
+use crate::providers::create_provider;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
@@ -228,11 +226,11 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
 
                 let messages = if let Some(sys) = &system {
                     vec![
-                        provider::Message::system(sys),
-                        provider::Message::user(msg),
+                        providers::Message::system(sys),
+                        providers::Message::user(msg),
                     ]
                 } else {
-                    vec![provider::Message::user(msg)]
+                    vec![providers::Message::user(msg)]
                 };
 
                 // Create spinner (unless quiet mode)
@@ -262,7 +260,7 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
                 return;
             }
 
-            let messages = vec![provider::Message::user(prompt)];
+            let messages = vec![providers::Message::user(prompt)];
 
             // Create spinner (unless quiet mode)
             let spinner = create_spinner("Generating completion...", &output);
@@ -282,16 +280,16 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
 }
 
 /// Interactive chat REPL handler
-async fn handle_text_repl(provider: Box<dyn provider::AIProvider>, system: Option<String>, output: &Output) {
+async fn handle_text_repl(provider: Box<dyn providers::AIProvider>, system: Option<String>, output: &Output) {
     let mut rl = DefaultEditor::new().unwrap_or_else(|e| {
         output.error(&format!("Failed to initialize REPL: {e}"), 1);
         std::process::exit(1);
     });
 
-    let mut conversation: Vec<provider::Message> = Vec::new();
+    let mut conversation: Vec<providers::Message> = Vec::new();
 
     if let Some(sys) = &system {
-        conversation.push(provider::Message::system(sys));
+        conversation.push(providers::Message::system(sys));
     }
 
     output.status("vox chat — type your message, :q to quit, :clear to reset history");
@@ -310,7 +308,7 @@ async fn handle_text_repl(provider: Box<dyn provider::AIProvider>, system: Optio
                 if trimmed == ":clear" {
                     conversation.clear();
                     if let Some(sys) = &system {
-                        conversation.push(provider::Message::system(sys));
+                        conversation.push(providers::Message::system(sys));
                     }
                     output.status("Conversation cleared.");
                     continue;
@@ -318,12 +316,12 @@ async fn handle_text_repl(provider: Box<dyn provider::AIProvider>, system: Optio
 
                 rl.add_history_entry(trimmed).ok();
 
-                conversation.push(provider::Message::user(trimmed));
+                conversation.push(providers::Message::user(trimmed));
 
                 match provider.chat(&conversation).await {
                     Ok(resp) => {
                         output.result(&resp.content);
-                        conversation.push(provider::Message::assistant(&resp.content));
+                        conversation.push(providers::Message::assistant(&resp.content));
                     }
                     Err(e) => output.error(&format!("{e}"), 1),
                 }

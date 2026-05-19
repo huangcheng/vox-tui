@@ -85,7 +85,6 @@ impl TextInputState {
         }
     }
 
-    #[allow(dead_code)]
     pub fn with_content(content: impl Into<String>) -> Self {
         let content = content.into();
         Self {
