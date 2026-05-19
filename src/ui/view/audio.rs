@@ -1,12 +1,12 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout as RatatuiLayout},
     style::Stylize,
     widgets::{Block, BorderType, Borders, Padding, Paragraph},
-    Frame,
 };
 
-use crate::ui::widget::Spinner;
 use crate::ui::AppTheme;
+use crate::ui::widget::Spinner;
 
 pub struct AudioView<'a> {
     text: &'a str,
@@ -67,17 +67,28 @@ impl<'a> AudioView<'a> {
 
         // Text to speak
         let text_widget = Paragraph::new(self.text)
-            .block(block().title(" Text ").title_style(theme.style(theme.accent).add_modifier(ratatui::style::Modifier::BOLD)))
+            .block(
+                block().title(" Text ").title_style(
+                    theme
+                        .style(theme.accent)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+            )
             .style(theme.style(theme.text_primary));
         f.render_widget(text_widget, text_area);
 
         // Status block
         if self.is_generating {
             let inner = block().inner(status_area);
-            f.render_widget(block().title(" Status ").title_style(theme.style(theme.accent).add_modifier(ratatui::style::Modifier::BOLD)), status_area);
-            let spinner = Spinner::new()
-                .label("Generating speech...")
-                .theme(theme);
+            f.render_widget(
+                block().title(" Status ").title_style(
+                    theme
+                        .style(theme.accent)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+                status_area,
+            );
+            let spinner = Spinner::new().label("Generating speech...").theme(theme);
             f.render_widget(spinner, inner);
         } else {
             let status_display = if self.is_playing {
@@ -94,7 +105,13 @@ impl<'a> AudioView<'a> {
 
             let status_widget = Paragraph::new(status_display)
                 .style(theme.style(status_color))
-                .block(block().title(" Status ").title_style(theme.style(theme.accent).add_modifier(ratatui::style::Modifier::BOLD)));
+                .block(
+                    block().title(" Status ").title_style(
+                        theme
+                            .style(theme.accent)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
+                );
 
             f.render_widget(status_widget, status_area);
         }

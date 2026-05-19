@@ -42,12 +42,8 @@ pub enum InputAction {
 
 pub fn handle_key_event(key: KeyEvent) -> InputAction {
     match key.code {
-        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            InputAction::Quit
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            InputAction::Quit
-        }
+        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => InputAction::Quit,
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => InputAction::Quit,
         KeyCode::Esc => InputAction::Escape,
         KeyCode::Enter => InputAction::Submit,
         KeyCode::Tab => InputAction::NextView,
@@ -56,9 +52,7 @@ pub fn handle_key_event(key: KeyEvent) -> InputAction {
         KeyCode::Char('2') => InputAction::SwitchView(1),
         KeyCode::Char('3') => InputAction::SwitchView(2),
         KeyCode::Char('4') => InputAction::SwitchView(3),
-        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-            InputAction::Char(c)
-        }
+        KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => InputAction::Char(c),
         KeyCode::Backspace => InputAction::Backspace,
         KeyCode::Delete => InputAction::Delete,
         KeyCode::Home => InputAction::Home,

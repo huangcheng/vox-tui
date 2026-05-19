@@ -102,7 +102,6 @@ pub enum Commands {
         /// Shell name (bash, zsh, fish, powershell, elvish)
         shell: String,
     },
-
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -376,9 +375,7 @@ mod tests {
 
     #[test]
     fn test_text_chat() {
-        let cli = Cli::try_parse_from([
-            "vox", "text", "chat", "--message", "hello world",
-        ]).unwrap();
+        let cli = Cli::try_parse_from(["vox", "text", "chat", "--message", "hello world"]).unwrap();
         match cli.command {
             Some(Commands::Text(TextCommand::Chat { message, system })) => {
                 assert_eq!(message, Some("hello world".to_string()));
@@ -412,7 +409,14 @@ mod tests {
 
     #[test]
     fn test_text_repl_with_system() {
-        let cli = Cli::try_parse_from(["vox", "text", "repl", "--system", "You are a helpful assistant"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "vox",
+            "text",
+            "repl",
+            "--system",
+            "You are a helpful assistant",
+        ])
+        .unwrap();
         match cli.command {
             Some(Commands::Text(TextCommand::Repl { system })) => {
                 assert_eq!(system, Some("You are a helpful assistant".to_string()));
@@ -423,9 +427,7 @@ mod tests {
 
     #[test]
     fn test_text_complete() {
-        let cli = Cli::try_parse_from([
-            "vox", "text", "complete", "The future of AI",
-        ]).unwrap();
+        let cli = Cli::try_parse_from(["vox", "text", "complete", "The future of AI"]).unwrap();
         match cli.command {
             Some(Commands::Text(TextCommand::Complete { prompt })) => {
                 assert_eq!(prompt, "The future of AI");
@@ -437,11 +439,25 @@ mod tests {
     #[test]
     fn test_image_generate() {
         let cli = Cli::try_parse_from([
-            "vox", "image", "generate", "a sunset over mountains",
-            "--aspect-ratio", "16:9", "-o", "sunset.png", "-n", "2",
-        ]).unwrap();
+            "vox",
+            "image",
+            "generate",
+            "a sunset over mountains",
+            "--aspect-ratio",
+            "16:9",
+            "-o",
+            "sunset.png",
+            "-n",
+            "2",
+        ])
+        .unwrap();
         match cli.command {
-            Some(Commands::Image(ImageCommand::Generate { prompt, aspect_ratio, output, n })) => {
+            Some(Commands::Image(ImageCommand::Generate {
+                prompt,
+                aspect_ratio,
+                output,
+                n,
+            })) => {
                 assert_eq!(prompt, "a sunset over mountains");
                 assert_eq!(aspect_ratio, "16:9");
                 assert_eq!(output, Some("sunset.png".to_string()));
@@ -454,11 +470,29 @@ mod tests {
     #[test]
     fn test_speech_generate() {
         let cli = Cli::try_parse_from([
-            "vox", "speech", "generate", "--text", "Hello world", "--out", "hello.mp3",
-            "--voice", "custom-voice", "--speed", "1.5", "--format", "wav",
-        ]).unwrap();
+            "vox",
+            "speech",
+            "generate",
+            "--text",
+            "Hello world",
+            "--out",
+            "hello.mp3",
+            "--voice",
+            "custom-voice",
+            "--speed",
+            "1.5",
+            "--format",
+            "wav",
+        ])
+        .unwrap();
         match cli.command {
-            Some(Commands::Speech(SpeechCommand::Generate { text, out, voice, speed, format })) => {
+            Some(Commands::Speech(SpeechCommand::Generate {
+                text,
+                out,
+                voice,
+                speed,
+                format,
+            })) => {
                 assert_eq!(text, "Hello world");
                 assert_eq!(out, Some("hello.mp3".to_string()));
                 assert_eq!(voice, "custom-voice");
@@ -472,11 +506,26 @@ mod tests {
     #[test]
     fn test_video_generate() {
         let cli = Cli::try_parse_from([
-            "vox", "video", "generate", "-p", "Ocean waves",
-            "--duration", "10", "--resolution", "1080P", "-o", "waves.mp4",
-        ]).unwrap();
+            "vox",
+            "video",
+            "generate",
+            "-p",
+            "Ocean waves",
+            "--duration",
+            "10",
+            "--resolution",
+            "1080P",
+            "-o",
+            "waves.mp4",
+        ])
+        .unwrap();
         match cli.command {
-            Some(Commands::Video(VideoCommand::Generate { prompt, duration, resolution, out })) => {
+            Some(Commands::Video(VideoCommand::Generate {
+                prompt,
+                duration,
+                resolution,
+                out,
+            })) => {
                 assert_eq!(prompt, "Ocean waves");
                 assert_eq!(duration, 10);
                 assert_eq!(resolution, "1080P");
@@ -489,11 +538,25 @@ mod tests {
     #[test]
     fn test_music_generate() {
         let cli = Cli::try_parse_from([
-            "vox", "music", "generate", "--prompt", "Upbeat pop",
-            "--lyrics", "[verse] La da dee", "--instrumental", "-o", "song.mp3",
-        ]).unwrap();
+            "vox",
+            "music",
+            "generate",
+            "--prompt",
+            "Upbeat pop",
+            "--lyrics",
+            "[verse] La da dee",
+            "--instrumental",
+            "-o",
+            "song.mp3",
+        ])
+        .unwrap();
         match cli.command {
-            Some(Commands::Music(MusicCommand::Generate { prompt, lyrics, instrumental, out })) => {
+            Some(Commands::Music(MusicCommand::Generate {
+                prompt,
+                lyrics,
+                instrumental,
+                out,
+            })) => {
                 assert_eq!(prompt, "Upbeat pop");
                 assert_eq!(lyrics, Some("[verse] La da dee".to_string()));
                 assert!(instrumental);
@@ -505,9 +568,8 @@ mod tests {
 
     #[test]
     fn test_search_query() {
-        let cli = Cli::try_parse_from([
-            "vox", "search", "query", "AI news", "--count", "10",
-        ]).unwrap();
+        let cli =
+            Cli::try_parse_from(["vox", "search", "query", "AI news", "--count", "10"]).unwrap();
         match cli.command {
             Some(Commands::Search(SearchCommand::Query { query, count })) => {
                 assert_eq!(query, "AI news");
@@ -520,8 +582,14 @@ mod tests {
     #[test]
     fn test_vision_analyze() {
         let cli = Cli::try_parse_from([
-            "vox", "vision", "analyze", "photo.jpg", "-p", "What is in this image?",
-        ]).unwrap();
+            "vox",
+            "vision",
+            "analyze",
+            "photo.jpg",
+            "-p",
+            "What is in this image?",
+        ])
+        .unwrap();
         match cli.command {
             Some(Commands::Vision(VisionCommand::Analyze { file, prompt })) => {
                 assert_eq!(file, "photo.jpg");
@@ -553,9 +621,8 @@ mod tests {
 
     #[test]
     fn test_config_set() {
-        let cli = Cli::try_parse_from([
-            "vox", "config", "set", "default_provider", "stepfun",
-        ]).unwrap();
+        let cli =
+            Cli::try_parse_from(["vox", "config", "set", "default_provider", "stepfun"]).unwrap();
         match cli.command {
             Some(Commands::Config(ConfigCommand::Set { key, value })) => {
                 assert_eq!(key, "default_provider");
@@ -587,9 +654,7 @@ mod tests {
 
     #[test]
     fn test_models_set() {
-        let cli = Cli::try_parse_from([
-            "vox", "models", "set", "chat", "MiniMax-M2.7",
-        ]).unwrap();
+        let cli = Cli::try_parse_from(["vox", "models", "set", "chat", "MiniMax-M2.7"]).unwrap();
         match cli.command {
             Some(Commands::Models(ModelsCommand::Set { capability, model })) => {
                 assert_eq!(capability, "chat");
@@ -612,7 +677,11 @@ mod tests {
     fn test_providers_add() {
         let cli = Cli::try_parse_from(["vox", "provider", "add", "minimax", "sk-test123"]).unwrap();
         match cli.command {
-            Some(Commands::Providers(ProvidersCommand::Add { provider, api_key, group_id })) => {
+            Some(Commands::Providers(ProvidersCommand::Add {
+                provider,
+                api_key,
+                group_id,
+            })) => {
                 assert_eq!(provider, "minimax");
                 assert_eq!(api_key, "sk-test123");
                 assert!(group_id.is_none());
@@ -623,9 +692,22 @@ mod tests {
 
     #[test]
     fn test_providers_add_with_group_id() {
-        let cli = Cli::try_parse_from(["vox", "provider", "add", "minimax", "sk-test", "--group-id", "grp123"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "vox",
+            "provider",
+            "add",
+            "minimax",
+            "sk-test",
+            "--group-id",
+            "grp123",
+        ])
+        .unwrap();
         match cli.command {
-            Some(Commands::Providers(ProvidersCommand::Add { provider, api_key, group_id })) => {
+            Some(Commands::Providers(ProvidersCommand::Add {
+                provider,
+                api_key,
+                group_id,
+            })) => {
                 assert_eq!(provider, "minimax");
                 assert_eq!(api_key, "sk-test");
                 assert_eq!(group_id, Some("grp123".to_string()));
@@ -682,9 +764,18 @@ mod tests {
     #[test]
     fn test_global_opts() {
         let cli = Cli::try_parse_from([
-            "vox", "--provider", "stepfun", "--model", "step-1-8k",
-            "--quiet", "--verbose", "--no-color", "--format", "json",
-        ]).unwrap();
+            "vox",
+            "--provider",
+            "stepfun",
+            "--model",
+            "step-1-8k",
+            "--quiet",
+            "--verbose",
+            "--no-color",
+            "--format",
+            "json",
+        ])
+        .unwrap();
         assert_eq!(cli.global.provider, Some("stepfun".to_string()));
         assert_eq!(cli.global.model, Some("step-1-8k".to_string()));
         assert!(cli.global.quiet);

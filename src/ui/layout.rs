@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout as RatatuiLayout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Padding},
-    Frame,
 };
 
 use crate::ui::widget::StatusBar;
@@ -95,42 +95,42 @@ impl AppTheme {
     pub fn dark() -> Self {
         Self {
             is_dark: true,
-            background: Color::Rgb(13, 17, 23),      // #0d1117
-            surface: Color::Rgb(22, 27, 34),         // #161b22
+            background: Color::Rgb(13, 17, 23),        // #0d1117
+            surface: Color::Rgb(22, 27, 34),           // #161b22
             surface_highlight: Color::Rgb(33, 38, 45), // #21262d
-            border: Color::Rgb(48, 54, 61),          // #30363d
-            border_focused: Color::Rgb(88, 166, 255), // #58a6ff
-            text_primary: Color::Rgb(230, 237, 243),  // #e6edf3
+            border: Color::Rgb(48, 54, 61),            // #30363d
+            border_focused: Color::Rgb(88, 166, 255),  // #58a6ff
+            text_primary: Color::Rgb(230, 237, 243),   // #e6edf3
             text_secondary: Color::Rgb(139, 148, 158), // #8b949e
-            text_muted: Color::Rgb(72, 79, 88),      // #484f58
-            accent: Color::Rgb(88, 166, 255),        // #58a6ff
-            accent_dim: Color::Rgb(56, 139, 253),    // #388bfd
-            success: Color::Rgb(63, 185, 80),        // #3fb950
-            warning: Color::Rgb(210, 153, 34),       // #d29922
-            error: Color::Rgb(247, 129, 102),        // #f78166
-            user_msg_bg: Color::Rgb(22, 27, 34),     // #161b22 (surface)
-            assistant_msg_bg: Color::Rgb(13, 17, 23), // #0d1117 (background)
-            system_msg_bg: Color::Rgb(51, 31, 31),   // #331f1f soft red-tinted
+            text_muted: Color::Rgb(72, 79, 88),        // #484f58
+            accent: Color::Rgb(88, 166, 255),          // #58a6ff
+            accent_dim: Color::Rgb(56, 139, 253),      // #388bfd
+            success: Color::Rgb(63, 185, 80),          // #3fb950
+            warning: Color::Rgb(210, 153, 34),         // #d29922
+            error: Color::Rgb(247, 129, 102),          // #f78166
+            user_msg_bg: Color::Rgb(22, 27, 34),       // #161b22 (surface)
+            assistant_msg_bg: Color::Rgb(13, 17, 23),  // #0d1117 (background)
+            system_msg_bg: Color::Rgb(51, 31, 31),     // #331f1f soft red-tinted
         }
     }
 
     pub fn light() -> Self {
         Self {
             is_dark: false,
-            background: Color::Rgb(255, 255, 255),   // #ffffff
-            surface: Color::Rgb(246, 248, 250),      // #f6f8fa
+            background: Color::Rgb(255, 255, 255), // #ffffff
+            surface: Color::Rgb(246, 248, 250),    // #f6f8fa
             surface_highlight: Color::Rgb(234, 238, 242), // #eaeef2
-            border: Color::Rgb(208, 215, 222),       // #d0d7de
+            border: Color::Rgb(208, 215, 222),     // #d0d7de
             border_focused: Color::Rgb(9, 105, 218), // #0969da
-            text_primary: Color::Rgb(31, 35, 40),    // #1f2328
+            text_primary: Color::Rgb(31, 35, 40),  // #1f2328
             text_secondary: Color::Rgb(101, 109, 118), // #656d76
-            text_muted: Color::Rgb(140, 149, 159),   // #8c959f
-            accent: Color::Rgb(9, 105, 218),         // #0969da
-            accent_dim: Color::Rgb(84, 174, 255),    // #54aeff
-            success: Color::Rgb(26, 127, 55),        // #1a7f37
-            warning: Color::Rgb(154, 103, 0),        // #9a6700
-            error: Color::Rgb(207, 34, 46),          // #cf222e
-            user_msg_bg: Color::Rgb(246, 248, 250),  // #f6f8fa (surface)
+            text_muted: Color::Rgb(140, 149, 159), // #8c959f
+            accent: Color::Rgb(9, 105, 218),       // #0969da
+            accent_dim: Color::Rgb(84, 174, 255),  // #54aeff
+            success: Color::Rgb(26, 127, 55),      // #1a7f37
+            warning: Color::Rgb(154, 103, 0),      // #9a6700
+            error: Color::Rgb(207, 34, 46),        // #cf222e
+            user_msg_bg: Color::Rgb(246, 248, 250), // #f6f8fa (surface)
             assistant_msg_bg: Color::Rgb(255, 255, 255), // #ffffff (background)
             system_msg_bg: Color::Rgb(255, 255, 255), // #ffffff
         }
@@ -189,7 +189,14 @@ fn parse_color(name: &str) -> Option<Color> {
 pub struct Layout;
 
 impl Layout {
-    pub fn render(f: &mut Frame, current_view: View, mode: &str, position: &str, help: &str, theme: &AppTheme) {
+    pub fn render(
+        f: &mut Frame,
+        current_view: View,
+        mode: &str,
+        position: &str,
+        help: &str,
+        theme: &AppTheme,
+    ) {
         let area = f.area();
         let layout = compute_layout(area);
 
@@ -233,13 +240,23 @@ impl Layout {
             );
 
         let mut state = ratatui::widgets::ListState::default();
-        let selected = View::all().iter().position(|v| *v == current_view).unwrap_or(0);
+        let selected = View::all()
+            .iter()
+            .position(|v| *v == current_view)
+            .unwrap_or(0);
         state.select(Some(selected));
 
         f.render_stateful_widget(sidebar, area, &mut state);
     }
 
-    pub fn render_status_bar(f: &mut Frame, area: Rect, mode: &str, position: &str, help: &str, theme: &AppTheme) {
+    pub fn render_status_bar(
+        f: &mut Frame,
+        area: Rect,
+        mode: &str,
+        position: &str,
+        help: &str,
+        theme: &AppTheme,
+    ) {
         let status = StatusBar::new(mode, position, help, theme);
         f.render_widget(status, area);
     }

@@ -42,7 +42,12 @@ fn minimax_models(capability: &str) -> Option<KnownModels> {
             default: "image-01",
         }),
         "speech" => Some(KnownModels {
-            models: &["speech-01", "speech-02-turbo", "speech-2.6-hd", "speech-2.8-hd"],
+            models: &[
+                "speech-01",
+                "speech-02-turbo",
+                "speech-2.6-hd",
+                "speech-2.8-hd",
+            ],
             default: "speech-01",
         }),
         "video" => Some(KnownModels {
@@ -65,8 +70,13 @@ fn stepfun_models(capability: &str) -> Option<KnownModels> {
     match capability {
         "chat" => Some(KnownModels {
             models: &[
-                "step-1-8k", "step-1-32k", "step-1-128k", "step-1-flash",
-                "step-2-16k", "step-2-32k", "step-3.5-flash",
+                "step-1-8k",
+                "step-1-32k",
+                "step-1-128k",
+                "step-1-flash",
+                "step-2-16k",
+                "step-2-32k",
+                "step-3.5-flash",
             ],
             default: "step-1-8k",
         }),

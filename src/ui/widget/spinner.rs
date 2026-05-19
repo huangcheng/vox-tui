@@ -65,8 +65,6 @@ impl Widget for Spinner<'_> {
             Style::default()
         };
 
-        Paragraph::new(text)
-            .style(style)
-            .render(area, buf);
+        Paragraph::new(text).style(style).render(area, buf);
     }
 }

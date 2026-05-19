@@ -66,7 +66,10 @@ impl ProviderCapabilities {
         if supported {
             Ok(())
         } else {
-            Err(format!("{provider_name} does not support {}", capability.as_str()))
+            Err(format!(
+                "{provider_name} does not support {}",
+                capability.as_str()
+            ))
         }
     }
 }
@@ -115,7 +118,10 @@ mod tests {
     #[test]
     fn test_require_supported() {
         let cap = ProviderCapabilities::for_provider(&Provider::MiniMax);
-        assert!(cap.require(Capability::VideoGenerate, &Provider::MiniMax).is_ok());
+        assert!(
+            cap.require(Capability::VideoGenerate, &Provider::MiniMax)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -123,6 +129,10 @@ mod tests {
         let cap = ProviderCapabilities::for_provider(&Provider::StepFun);
         let result = cap.require(Capability::VideoGenerate, &Provider::StepFun);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("StepFun does not support video_generate"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("StepFun does not support video_generate")
+        );
     }
 }

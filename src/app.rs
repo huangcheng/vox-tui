@@ -1,9 +1,9 @@
 use crate::command::{self, SlashCommand};
 use crate::config::{Config, ConfigEditor, Provider as ConfigProvider};
 use crate::input::{self, InputMode, TextInputState};
-use crate::providers::{create_provider, WorkResult};
-use crate::ui::widget::{ChatMessage, MessageRole};
+use crate::providers::{WorkResult, create_provider};
 use crate::ui::View;
+use crate::ui::widget::{ChatMessage, MessageRole};
 
 /// Returns a timestamped path under `~/.config/vox/images/`.
 fn image_save_path() -> Option<std::path::PathBuf> {
@@ -44,7 +44,8 @@ impl AppState {
 
         Self {
             running: true,
-            status: "vox — 1-4: switch view, Tab/⇧Tab: next/prev, Enter: send, q/Ctrl+C: quit".into(),
+            status: "vox — 1-4: switch view, Tab/⇧Tab: next/prev, Enter: send, q/Ctrl+C: quit"
+                .into(),
             current_view: View::default(),
             input_mode: InputMode::Normal,
             input: TextInputState::new(),
@@ -71,7 +72,8 @@ impl AppState {
                  Or edit ~/.config/vox/config.toml manually:\n\n\
                  [minimax]\n\
                  api_key = \"your-api-key\"\n\n\
-                 Then use /provider minimax to activate.".to_string()
+                 Then use /provider minimax to activate."
+                    .to_string(),
             ));
         }
         state
@@ -110,7 +112,8 @@ impl AppState {
                         Some(View::Image) => self.image_result = Some(format!("Error: {}", msg)),
                         Some(View::Audio) => self.audio_result = Some(format!("Error: {}", msg)),
                         _ => {
-                            self.messages.push(ChatMessage::system(format!("Error: {}", msg)));
+                            self.messages
+                                .push(ChatMessage::system(format!("Error: {}", msg)));
                         }
                     }
                     self.pending_view = None;
@@ -136,7 +139,11 @@ impl AppState {
                                     }
                                 }
                                 // Forward to ImageDownloaded for TUI protocol creation
-                                let _ = tx.send(WorkResult::ImageDownloaded { image_data: bytes.to_vec() }).await;
+                                let _ = tx
+                                    .send(WorkResult::ImageDownloaded {
+                                        image_data: bytes.to_vec(),
+                                    })
+                                    .await;
                             }
                         });
                         self.status = "Downloading image...".into();
@@ -155,15 +162,19 @@ impl AppState {
                         let font_size = picker.font_size();
                         let max_w = 60u16;
                         let max_h = 30u16;
-                        let img_cell_w = (dyn_img.width() as f32 / font_size.0 as f32).ceil() as u16;
-                        let img_cell_h = (dyn_img.height() as f32 / font_size.1 as f32).ceil() as u16;
+                        let img_cell_w =
+                            (dyn_img.width() as f32 / font_size.0 as f32).ceil() as u16;
+                        let img_cell_h =
+                            (dyn_img.height() as f32 / font_size.1 as f32).ceil() as u16;
                         let size = ratatui::layout::Rect::new(
                             0,
                             0,
                             img_cell_w.min(max_w),
                             img_cell_h.min(max_h),
                         );
-                        if let Ok(proto) = picker.new_protocol(dyn_img, size, ratatui_image::Resize::Fit(None)) {
+                        if let Ok(proto) =
+                            picker.new_protocol(dyn_img, size, ratatui_image::Resize::Fit(None))
+                        {
                             self.image_protocol = Some(proto);
                         }
                     }
@@ -171,27 +182,43 @@ impl AppState {
                     self.status = "Image generated — opened in viewer".into();
                     self.image_result = Some("🖼️ Image generated — opened in system viewer".into());
                 }
-                WorkResult::SpeechGenerated { audio_data, format: fmt } => {
+                WorkResult::SpeechGenerated {
+                    audio_data,
+                    format: fmt,
+                } => {
                     self.pending_view = None;
                     self.input_mode = InputMode::Normal;
                     self.status = "Speech generated".into();
-                    self.audio_result = Some(format!("Speech generated ({} bytes, {})", audio_data.len(), fmt));
-                }
-                WorkResult::VideoGenerated { task_id, status, video_url } => {
-                    let msg = format!("Video task {} — status: {}", task_id, status);
-                    self.messages.push(ChatMessage::assistant(
-                        if let Some(url) = video_url { format!("{}\nURL: {}", msg, url) } else { msg }
+                    self.audio_result = Some(format!(
+                        "Speech generated ({} bytes, {})",
+                        audio_data.len(),
+                        fmt
                     ));
+                }
+                WorkResult::VideoGenerated {
+                    task_id,
+                    status,
+                    video_url,
+                } => {
+                    let msg = format!("Video task {} — status: {}", task_id, status);
+                    self.messages
+                        .push(ChatMessage::assistant(if let Some(url) = video_url {
+                            format!("{}\nURL: {}", msg, url)
+                        } else {
+                            msg
+                        }));
                     self.input_mode = InputMode::Normal;
                     self.status = "Video task submitted".into();
                 }
                 WorkResult::MusicGenerated { .. } => {
-                    self.messages.push(ChatMessage::assistant("Music generated successfully."));
+                    self.messages
+                        .push(ChatMessage::assistant("Music generated successfully."));
                     self.input_mode = InputMode::Normal;
                     self.status = "Music generated".into();
                 }
                 WorkResult::SearchResults { results } => {
-                    let text = results.iter()
+                    let text = results
+                        .iter()
                         .map(|r| format!("{}\n  {}", r.title, r.url))
                         .collect::<Vec<_>>()
                         .join("\n\n");
@@ -216,7 +243,10 @@ impl AppState {
 
     pub fn prev_view(&mut self) {
         let views = View::all();
-        let idx = views.iter().position(|v| v == &self.current_view).unwrap_or(0);
+        let idx = views
+            .iter()
+            .position(|v| v == &self.current_view)
+            .unwrap_or(0);
         let new_idx = if idx == 0 { views.len() - 1 } else { idx - 1 };
         self.current_view = views[new_idx];
         self.input.clear();
@@ -241,7 +271,9 @@ impl AppState {
                 }
             }
             _ => {
-                if self.input_mode == InputMode::ConfigNavigating || self.input_mode == InputMode::ConfigEditing {
+                if self.input_mode == InputMode::ConfigNavigating
+                    || self.input_mode == InputMode::ConfigEditing
+                {
                     self.input_mode = InputMode::Normal;
                 }
             }
@@ -250,121 +282,113 @@ impl AppState {
 
     pub fn handle_input(&mut self, action: input::InputAction) {
         match self.input_mode {
-            InputMode::Streaming => {
-                match action {
-                    input::InputAction::Escape => {
-                        self.input_mode = InputMode::Normal;
-                        self.status = "Streaming cancelled".into();
-                    }
-                    input::InputAction::Quit => self.running = false,
-                    _ => {}
+            InputMode::Streaming => match action {
+                input::InputAction::Escape => {
+                    self.input_mode = InputMode::Normal;
+                    self.status = "Streaming cancelled".into();
                 }
-            }
-            InputMode::Typing => {
-                match action {
-                    input::InputAction::Char(c) => self.input.insert_char(c),
-                    input::InputAction::Backspace => self.input.backspace(),
-                    input::InputAction::Delete => self.input.delete(),
-                    input::InputAction::Home => self.input.move_home(),
-                    input::InputAction::End => self.input.move_end(),
-                    input::InputAction::Left => self.input.move_left(),
-                    input::InputAction::Right => self.input.move_right(),
-                    input::InputAction::Submit if !self.input.content.is_empty() => {
-                        self.send_message();
-                    }
-                    input::InputAction::Escape => {
-                        self.input.clear();
-                        self.input_mode = InputMode::Normal;
-                    }
-                    input::InputAction::ScrollUp => {
-                        self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                    }
-                    input::InputAction::ScrollDown => {
-                        self.scroll_offset = self.scroll_offset.saturating_add(1);
-                    }
-                    input::InputAction::NextView => {
-                        self.input_mode = InputMode::Normal;
-                        self.next_view();
-                    }
-                    input::InputAction::SwitchView(digit) if digit <= 9 => {
-                        self.input.insert_char(char::from_digit(digit as u32, 10).unwrap());
-                    }
-                    _ => {}
+                input::InputAction::Quit => self.running = false,
+                _ => {}
+            },
+            InputMode::Typing => match action {
+                input::InputAction::Char(c) => self.input.insert_char(c),
+                input::InputAction::Backspace => self.input.backspace(),
+                input::InputAction::Delete => self.input.delete(),
+                input::InputAction::Home => self.input.move_home(),
+                input::InputAction::End => self.input.move_end(),
+                input::InputAction::Left => self.input.move_left(),
+                input::InputAction::Right => self.input.move_right(),
+                input::InputAction::Submit if !self.input.content.is_empty() => {
+                    self.send_message();
                 }
-            }
-            InputMode::ConfigEditing => {
-                match action {
-                    input::InputAction::Char(c) => self.config_editor.type_char(c),
-                    input::InputAction::Backspace => self.config_editor.backspace(),
-                    input::InputAction::Submit => {
-                        if let Err(e) = self.config_editor.apply_edit(&mut self.config) {
-                            self.messages.push(ChatMessage::system(e));
-                        }
-                        self.input_mode = InputMode::ConfigNavigating;
-                    }
-                    input::InputAction::Escape => {
-                        self.config_editor.cancel_edit();
-                        self.input_mode = InputMode::ConfigNavigating;
-                    }
-                    input::InputAction::SwitchView(digit) if digit <= 9 => {
-                        self.config_editor.type_char(char::from_digit(digit as u32, 10).unwrap());
-                    }
-                    _ => {}
+                input::InputAction::Escape => {
+                    self.input.clear();
+                    self.input_mode = InputMode::Normal;
                 }
-            }
-            InputMode::ConfigNavigating => {
-                match action {
-                    input::InputAction::Quit => self.running = false,
-                    input::InputAction::NextView => self.next_view(),
-                    input::InputAction::PrevView => self.prev_view(),
-                    input::InputAction::SwitchView(idx) => self.switch_view(idx),
-                    input::InputAction::ScrollUp => self.config_editor.navigate_up(&self.config),
-                    input::InputAction::ScrollDown => self.config_editor.navigate_down(&self.config),
-                    input::InputAction::Left => self.config_editor.cycle_field(&mut self.config, -1),
-                    input::InputAction::Right => self.config_editor.cycle_field(&mut self.config, 1),
-                    input::InputAction::Submit => {
+                input::InputAction::ScrollUp => {
+                    self.scroll_offset = self.scroll_offset.saturating_sub(1);
+                }
+                input::InputAction::ScrollDown => {
+                    self.scroll_offset = self.scroll_offset.saturating_add(1);
+                }
+                input::InputAction::NextView => {
+                    self.input_mode = InputMode::Normal;
+                    self.next_view();
+                }
+                input::InputAction::SwitchView(digit) if digit <= 9 => {
+                    self.input
+                        .insert_char(char::from_digit(digit as u32, 10).unwrap());
+                }
+                _ => {}
+            },
+            InputMode::ConfigEditing => match action {
+                input::InputAction::Char(c) => self.config_editor.type_char(c),
+                input::InputAction::Backspace => self.config_editor.backspace(),
+                input::InputAction::Submit => {
+                    if let Err(e) = self.config_editor.apply_edit(&mut self.config) {
+                        self.messages.push(ChatMessage::system(e));
+                    }
+                    self.input_mode = InputMode::ConfigNavigating;
+                }
+                input::InputAction::Escape => {
+                    self.config_editor.cancel_edit();
+                    self.input_mode = InputMode::ConfigNavigating;
+                }
+                input::InputAction::SwitchView(digit) if digit <= 9 => {
+                    self.config_editor
+                        .type_char(char::from_digit(digit as u32, 10).unwrap());
+                }
+                _ => {}
+            },
+            InputMode::ConfigNavigating => match action {
+                input::InputAction::Quit => self.running = false,
+                input::InputAction::NextView => self.next_view(),
+                input::InputAction::PrevView => self.prev_view(),
+                input::InputAction::SwitchView(idx) => self.switch_view(idx),
+                input::InputAction::ScrollUp => self.config_editor.navigate_up(&self.config),
+                input::InputAction::ScrollDown => self.config_editor.navigate_down(&self.config),
+                input::InputAction::Left => self.config_editor.cycle_field(&mut self.config, -1),
+                input::InputAction::Right => self.config_editor.cycle_field(&mut self.config, 1),
+                input::InputAction::Submit => {
+                    self.config_editor.start_edit(&self.config);
+                    if self.config_editor.editing {
+                        self.input_mode = InputMode::ConfigEditing;
+                    }
+                }
+                input::InputAction::Escape => {
+                    self.input_mode = InputMode::Normal;
+                    self.current_view = View::Chat;
+                }
+                _ => {}
+            },
+            InputMode::Normal => match action {
+                input::InputAction::Quit => self.running = false,
+                input::InputAction::NextView => self.next_view(),
+                input::InputAction::PrevView => self.prev_view(),
+                input::InputAction::SwitchView(idx) => self.switch_view(idx),
+                input::InputAction::Submit => {
+                    if self.current_view == View::Config {
                         self.config_editor.start_edit(&self.config);
-                        if self.config_editor.editing {
-                            self.input_mode = InputMode::ConfigEditing;
-                        }
-                    }
-                    input::InputAction::Escape => {
-                        self.input_mode = InputMode::Normal;
-                        self.current_view = View::Chat;
-                    }
-                    _ => {}
-                }
-            }
-            InputMode::Normal => {
-                match action {
-                    input::InputAction::Quit => self.running = false,
-                    input::InputAction::NextView => self.next_view(),
-                    input::InputAction::PrevView => self.prev_view(),
-                    input::InputAction::SwitchView(idx) => self.switch_view(idx),
-                    input::InputAction::Submit => {
-                        if self.current_view == View::Config {
-                            self.config_editor.start_edit(&self.config);
-                            self.input_mode = InputMode::ConfigEditing;
-                        } else {
-                            self.input_mode = InputMode::Typing;
-                        }
-                    }
-                    input::InputAction::Escape => {
-                        self.input.clear();
-                    }
-                    input::InputAction::ScrollUp if self.current_view == View::Chat => {
-                        self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                    }
-                    input::InputAction::ScrollDown if self.current_view == View::Chat => {
-                        self.scroll_offset = self.scroll_offset.saturating_add(1);
-                    }
-                    input::InputAction::Char(c) => {
-                        self.input.insert_char(c);
+                        self.input_mode = InputMode::ConfigEditing;
+                    } else {
                         self.input_mode = InputMode::Typing;
                     }
-                    _ => {}
                 }
-            }
+                input::InputAction::Escape => {
+                    self.input.clear();
+                }
+                input::InputAction::ScrollUp if self.current_view == View::Chat => {
+                    self.scroll_offset = self.scroll_offset.saturating_sub(1);
+                }
+                input::InputAction::ScrollDown if self.current_view == View::Chat => {
+                    self.scroll_offset = self.scroll_offset.saturating_add(1);
+                }
+                input::InputAction::Char(c) => {
+                    self.input.insert_char(c);
+                    self.input_mode = InputMode::Typing;
+                }
+                _ => {}
+            },
         }
     }
 
@@ -396,13 +420,15 @@ impl AppState {
         self.status = "Waiting for response...".into();
         self.scroll_offset = u16::MAX;
 
-        let provider_messages: Vec<crate::providers::Message> = self.messages.iter().map(|m| {
-            match m.role {
+        let provider_messages: Vec<crate::providers::Message> = self
+            .messages
+            .iter()
+            .map(|m| match m.role {
                 MessageRole::User => crate::providers::Message::user(&m.content),
                 MessageRole::Assistant => crate::providers::Message::assistant(&m.content),
                 MessageRole::System => crate::providers::Message::system(&m.content),
-            }
-        }).collect();
+            })
+            .collect();
 
         let config = self.config.clone();
         let tx = self.work_tx.clone();
@@ -437,18 +463,28 @@ impl AppState {
                         if let Some(url) = response.urls.first() {
                             if let Ok(resp) = reqwest::get(url).await {
                                 if let Ok(bytes) = resp.bytes().await {
-                                    let path = image_save_path().unwrap_or_else(|| std::env::temp_dir().join("vox-last-image.png"));
+                                    let path = image_save_path().unwrap_or_else(|| {
+                                        std::env::temp_dir().join("vox-last-image.png")
+                                    });
                                     let _ = std::fs::write(&path, &bytes);
                                     let _ = open::that(&path);
-                                    WorkResult::ImageDownloaded { image_data: bytes.to_vec() }
+                                    WorkResult::ImageDownloaded {
+                                        image_data: bytes.to_vec(),
+                                    }
                                 } else {
-                                    WorkResult::ImageGenerated { urls: response.urls }
+                                    WorkResult::ImageGenerated {
+                                        urls: response.urls,
+                                    }
                                 }
                             } else {
-                                WorkResult::ImageGenerated { urls: response.urls }
+                                WorkResult::ImageGenerated {
+                                    urls: response.urls,
+                                }
                             }
                         } else {
-                            WorkResult::ImageGenerated { urls: response.urls }
+                            WorkResult::ImageGenerated {
+                                urls: response.urls,
+                            }
                         }
                     }
                     Err(e) => WorkResult::Error(e.to_string()),
@@ -469,7 +505,10 @@ impl AppState {
 
         tokio::spawn(async move {
             let result = match create_provider(&config) {
-                Ok(provider) => match provider.speech_synthesize(&text, "default", 1.0, "mp3").await {
+                Ok(provider) => match provider
+                    .speech_synthesize(&text, "default", 1.0, "mp3")
+                    .await
+                {
                     Ok(response) => WorkResult::SpeechGenerated {
                         audio_data: response.audio_data,
                         format: response.format,
@@ -492,9 +531,9 @@ impl AppState {
                     "stepfun" => ConfigProvider::StepFun,
                     "minimax" => ConfigProvider::MiniMax,
                     _ => {
-                        self.messages.push(ChatMessage::system(
-                            format!("Unknown provider: {name}. Available: stepfun, minimax"),
-                        ));
+                        self.messages.push(ChatMessage::system(format!(
+                            "Unknown provider: {name}. Available: stepfun, minimax"
+                        )));
                         return;
                     }
                 };
@@ -520,17 +559,26 @@ impl AppState {
                     let models = self.config.get_available_models("chat");
                     if models.is_empty() {
                         self.messages.push(ChatMessage::system(
-                            "No model list available. Use /model <name> to set a specific model.".to_string()
+                            "No model list available. Use /model <name> to set a specific model."
+                                .to_string(),
                         ));
                     } else {
                         let current = self.config.get_model_for("chat").unwrap_or_default();
-                        let model_list: String = models.iter()
-                            .map(|m| if m == &current { format!("► {}", m) } else { format!("  {}", m) })
+                        let model_list: String = models
+                            .iter()
+                            .map(|m| {
+                                if m == &current {
+                                    format!("► {}", m)
+                                } else {
+                                    format!("  {}", m)
+                                }
+                            })
                             .collect::<Vec<_>>()
                             .join("\n");
-                        self.messages.push(ChatMessage::system(
-                            format!("Available models:\n{}\n\nUse /model <name> to switch.", model_list)
-                        ));
+                        self.messages.push(ChatMessage::system(format!(
+                            "Available models:\n{}\n\nUse /model <name> to switch.",
+                            model_list
+                        )));
                     }
                 } else {
                     match self.config.default_provider {
@@ -545,7 +593,8 @@ impl AppState {
                             }
                         }
                     }
-                    self.messages.push(ChatMessage::system(format!("Model set to: {}", name)));
+                    self.messages
+                        .push(ChatMessage::system(format!("Model set to: {}", name)));
                 }
             }
             SlashCommand::Help => {
@@ -560,28 +609,35 @@ impl AppState {
             }
             SlashCommand::Clear => {
                 self.messages.clear();
-                self.messages.push(ChatMessage::system("Chat history cleared".to_string()));
+                self.messages
+                    .push(ChatMessage::system("Chat history cleared".to_string()));
             }
-            SlashCommand::Save => {
-                match self.save_conversation() {
-                    Ok(path) => {
-                        self.messages.push(ChatMessage::system(format!("Conversation saved to {path}")));
-                    }
-                    Err(e) => {
-                        self.messages.push(ChatMessage::system(format!("Failed to save: {e}")));
-                    }
+            SlashCommand::Save => match self.save_conversation() {
+                Ok(path) => {
+                    self.messages
+                        .push(ChatMessage::system(format!("Conversation saved to {path}")));
                 }
-            }
+                Err(e) => {
+                    self.messages
+                        .push(ChatMessage::system(format!("Failed to save: {e}")));
+                }
+            },
             SlashCommand::Status => {
                 let provider_info = match self.config.default_provider {
                     ConfigProvider::StepFun => {
-                        let model = self.config.stepfun.as_ref()
+                        let model = self
+                            .config
+                            .stepfun
+                            .as_ref()
                             .and_then(|s| s.model.as_deref())
                             .unwrap_or("default");
                         format!("Provider: StepFun\nModel: {model}")
                     }
                     ConfigProvider::MiniMax => {
-                        let model = self.config.minimax.as_ref()
+                        let model = self
+                            .config
+                            .minimax
+                            .as_ref()
                             .and_then(|m| m.model.as_deref())
                             .unwrap_or("default");
                         format!("Provider: MiniMax\nModel: {model}")
@@ -609,11 +665,17 @@ impl AppState {
         let path = history_dir.join(&filename);
 
         let mut content = String::new();
-        content.push_str(&format!("# Vox Conversation — {}\n\n", now.format("%Y-%m-%d %H:%M")));
+        content.push_str(&format!(
+            "# Vox Conversation — {}\n\n",
+            now.format("%Y-%m-%d %H:%M")
+        ));
         for msg in &self.messages {
             let role = msg.role_label();
             let ts = msg.timestamp.as_deref().unwrap_or("");
-            content.push_str(&format!("## {role} ({ts})\n\n{body}\n\n", body = msg.content));
+            content.push_str(&format!(
+                "## {role} ({ts})\n\n{body}\n\n",
+                body = msg.content
+            ));
         }
 
         std::fs::write(&path, content)?;
@@ -786,7 +848,9 @@ mod tests {
             output_dir: None,
         };
 
-        app.handle_slash_command(SlashCommand::Provider { name: "minimax".to_string() });
+        app.handle_slash_command(SlashCommand::Provider {
+            name: "minimax".to_string(),
+        });
         assert_eq!(app.config.default_provider, ConfigProvider::MiniMax);
         assert_ne!(app.input_mode, InputMode::Streaming);
         assert!(!app.messages.is_empty());
@@ -797,7 +861,9 @@ mod tests {
     #[test]
     fn test_handle_slash_command_provider_unknown() {
         let mut app = AppState::new();
-        app.handle_slash_command(SlashCommand::Provider { name: "unknown".to_string() });
+        app.handle_slash_command(SlashCommand::Provider {
+            name: "unknown".to_string(),
+        });
         assert!(!app.messages.is_empty());
         let last_msg = app.messages.last().unwrap();
         assert!(last_msg.content.contains("Unknown provider"));

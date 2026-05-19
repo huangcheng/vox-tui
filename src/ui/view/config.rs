@@ -1,8 +1,8 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style, Stylize},
     widgets::{Block, Borders, Clear, List, ListItem, Padding, Paragraph},
-    Frame,
 };
 
 use crate::config::{Config, ConfigField};
@@ -51,20 +51,22 @@ impl<'a> ConfigView<'a> {
 
     fn get_current_model(&self, provider: &crate::config::Provider, category: &str) -> String {
         match provider {
-            crate::config::Provider::StepFun => {
-                self.config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .map(|s| s.to_string())
-                    .or_else(|| self.config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
-                    .unwrap_or_default()
-            }
-            crate::config::Provider::MiniMax => {
-                self.config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .map(|s| s.to_string())
-                    .or_else(|| self.config.minimax.as_ref().and_then(|mm| mm.model.clone()))
-                    .unwrap_or_default()
-            }
+            crate::config::Provider::StepFun => self
+                .config
+                .stepfun
+                .as_ref()
+                .and_then(|sf| sf.models.get(category))
+                .map(|s| s.to_string())
+                .or_else(|| self.config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
+                .unwrap_or_default(),
+            crate::config::Provider::MiniMax => self
+                .config
+                .minimax
+                .as_ref()
+                .and_then(|mm| mm.models.get(category))
+                .map(|s| s.to_string())
+                .or_else(|| self.config.minimax.as_ref().and_then(|mm| mm.model.clone()))
+                .unwrap_or_default(),
         }
     }
 
@@ -80,39 +82,52 @@ impl<'a> ConfigView<'a> {
     pub fn render(&self, f: &mut Frame, area: ratatui::layout::Rect) {
         let theme = self.theme;
 
-        let items: Vec<ListItem> = self.fields.iter().enumerate().flat_map(|(idx, field)| {
-            let is_selected = idx == self.selected;
-            let mut result = Vec::new();
+        let items: Vec<ListItem> = self
+            .fields
+            .iter()
+            .enumerate()
+            .flat_map(|(idx, field)| {
+                let is_selected = idx == self.selected;
+                let mut result = Vec::new();
 
-            // Section header before first field of each section
-            if let Some(name) = field.section_name() {
-                result.push(ListItem::new(""));
-                result.push(ListItem::new(
-                    format!(" {} ", name),
-                ).style(theme.style(theme.accent).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)));
-            }
+                // Section header before first field of each section
+                if let Some(name) = field.section_name() {
+                    result.push(ListItem::new(""));
+                    result.push(
+                        ListItem::new(format!(" {} ", name)).style(
+                            theme
+                                .style(theme.accent)
+                                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                        ),
+                    );
+                }
 
-            if *field == ConfigField::ActiveProvider && idx == 0 {
-                result.push(ListItem::new(""));
-                result.push(ListItem::new(
-                    " Provider ",
-                ).style(theme.style(theme.accent).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)));
-            }
+                if *field == ConfigField::ActiveProvider && idx == 0 {
+                    result.push(ListItem::new(""));
+                    result.push(
+                        ListItem::new(" Provider ").style(
+                            theme
+                                .style(theme.accent)
+                                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                        ),
+                    );
+                }
 
-            let content = self.render_field_content(field, is_selected);
+                let content = self.render_field_content(field, is_selected);
 
-            let style = if is_selected {
-                theme
-                    .style(theme.accent)
-                    .add_modifier(Modifier::BOLD)
-                    .bg(theme.surface_highlight)
-            } else {
-                theme.style(theme.text_primary)
-            };
+                let style = if is_selected {
+                    theme
+                        .style(theme.accent)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(theme.surface_highlight)
+                } else {
+                    theme.style(theme.text_primary)
+                };
 
-            result.push(ListItem::new(content).style(style));
-            result
-        }).collect();
+                result.push(ListItem::new(content).style(style));
+                result
+            })
+            .collect();
 
         let block = Block::default()
             .title(" Configuration ")
@@ -120,8 +135,7 @@ impl<'a> ConfigView<'a> {
             .border_style(theme.style(theme.border))
             .padding(Padding::horizontal(1));
 
-        let list = List::new(items)
-            .block(block);
+        let list = List::new(items).block(block);
 
         f.render_widget(list, area);
 
@@ -131,8 +145,7 @@ impl<'a> ConfigView<'a> {
             "↑↓ Navigate  ←→: Cycle  Enter: Edit  q: Quit"
         };
 
-        let help_para = Paragraph::new(help_text)
-            .style(theme.style(theme.text_muted));
+        let help_para = Paragraph::new(help_text).style(theme.style(theme.text_muted));
 
         let help_area = ratatui::layout::Rect::new(
             area.x + 1,
@@ -154,7 +167,10 @@ impl<'a> ConfigView<'a> {
 
         // Dim background
         let dim_block = Block::default().bg(theme.background);
-        f.render_widget(dim_block.style(Style::default().add_modifier(Modifier::DIM)), area);
+        f.render_widget(
+            dim_block.style(Style::default().add_modifier(Modifier::DIM)),
+            area,
+        );
 
         let popup_area = Self::centered_popup_area(area);
         f.render_widget(Clear, popup_area);
@@ -177,19 +193,12 @@ impl<'a> ConfigView<'a> {
         let inner = block.inner(popup_area);
         f.render_widget(block, popup_area);
 
-        let input_para = Paragraph::new(display_text)
-            .style(theme.style(theme.text_primary));
-        let input_area = Rect::new(
-            inner.x + 1,
-            inner.y + 1,
-            inner.width.saturating_sub(2),
-            1,
-        );
+        let input_para = Paragraph::new(display_text).style(theme.style(theme.text_primary));
+        let input_area = Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1);
         f.render_widget(input_para, input_area);
 
         let help = "Enter: Save  Esc: Cancel";
-        let help_para = Paragraph::new(help)
-            .style(theme.style(theme.text_muted));
+        let help_para = Paragraph::new(help).style(theme.style(theme.text_muted));
         let help_area = Rect::new(
             inner.x + 1,
             inner.bottom().saturating_sub(1),
@@ -249,7 +258,8 @@ impl<'a> ConfigView<'a> {
                 let provider = field.provider().unwrap();
                 let category = field.category().unwrap();
                 let current = self.get_current_model(&provider, category);
-                let available_count = crate::models::get_available_models(&provider, category).len();
+                let available_count =
+                    crate::models::get_available_models(&provider, category).len();
                 let arrows = if available_count > 1 { " ◀ ▶" } else { "" };
                 format!("{}{}: {}{}", prefix, field.label(), current, arrows)
             }

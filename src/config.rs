@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -84,13 +83,34 @@ impl ProviderModels {
 
     pub fn set(&mut self, category: &str, value: String) -> bool {
         match category {
-            "chat" => { self.chat = Some(value); true }
-            "image" => { self.image = Some(value); true }
-            "speech" => { self.speech = Some(value); true }
-            "video" => { self.video = Some(value); true }
-            "music" => { self.music = Some(value); true }
-            "vision" => { self.vision = Some(value); true }
-            "search" => { self.search = Some(value); true }
+            "chat" => {
+                self.chat = Some(value);
+                true
+            }
+            "image" => {
+                self.image = Some(value);
+                true
+            }
+            "speech" => {
+                self.speech = Some(value);
+                true
+            }
+            "video" => {
+                self.video = Some(value);
+                true
+            }
+            "music" => {
+                self.music = Some(value);
+                true
+            }
+            "vision" => {
+                self.vision = Some(value);
+                true
+            }
+            "search" => {
+                self.search = Some(value);
+                true
+            }
             _ => false,
         }
     }
@@ -172,11 +192,15 @@ impl Config {
     pub fn config_dir() -> Option<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            std::env::var_os("APPDATA").map(PathBuf::from).map(|p| p.join("vox"))
+            std::env::var_os("APPDATA")
+                .map(PathBuf::from)
+                .map(|p| p.join("vox"))
         }
         #[cfg(not(target_os = "windows"))]
         {
-            std::env::var_os("HOME").map(PathBuf::from).map(|p| p.join(".config").join("vox"))
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|p| p.join(".config").join("vox"))
         }
     }
 
@@ -185,8 +209,7 @@ impl Config {
     }
 
     pub fn default_config() -> Self {
-        toml::from_str(DEFAULT_CONFIG_TOML)
-            .unwrap_or_default()
+        toml::from_str(DEFAULT_CONFIG_TOML).unwrap_or_default()
     }
 
     /// Load user config merged over defaults
@@ -392,7 +415,10 @@ impl Config {
             && let Some(ref color) = theme.accent_color
             && !Self::is_valid_color(color)
         {
-            return Err(ConfigError::InvalidValue("theme.accent_color", color.clone()));
+            return Err(ConfigError::InvalidValue(
+                "theme.accent_color",
+                color.clone(),
+            ));
         }
 
         Ok(())
@@ -401,7 +427,8 @@ impl Config {
     fn is_valid_color(color: &str) -> bool {
         let lower = color.trim().to_lowercase();
         if let Some(hex) = lower.strip_prefix('#') {
-            return (hex.len() == 6 || hex.len() == 3) && hex.chars().all(|c| c.is_ascii_hexdigit());
+            return (hex.len() == 6 || hex.len() == 3)
+                && hex.chars().all(|c| c.is_ascii_hexdigit());
         }
         matches!(
             lower.as_str(),
@@ -411,8 +438,12 @@ impl Config {
 
     pub fn configured_providers(&self) -> Vec<Provider> {
         let mut providers = Vec::new();
-        if self.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty()) { providers.push(Provider::StepFun); }
-        if self.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty()) { providers.push(Provider::MiniMax); }
+        if self.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty()) {
+            providers.push(Provider::StepFun);
+        }
+        if self.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty()) {
+            providers.push(Provider::MiniMax);
+        }
         providers
     }
 
@@ -580,7 +611,10 @@ impl ConfigField {
 
     /// Is this a section header point?
     pub fn is_section_start(&self) -> bool {
-        matches!(self, ConfigField::StepFunApiKey | ConfigField::MiniMaxApiKey)
+        matches!(
+            self,
+            ConfigField::StepFunApiKey | ConfigField::MiniMaxApiKey
+        )
     }
 
     pub fn section_name(&self) -> Option<&'static str> {
@@ -620,7 +654,10 @@ impl ConfigEditor {
 
     pub fn start_edit(&mut self, config: &Config) {
         let fields = self.fields(config);
-        let field = fields.get(self.selected).copied().unwrap_or(ConfigField::ActiveProvider);
+        let field = fields
+            .get(self.selected)
+            .copied()
+            .unwrap_or(ConfigField::ActiveProvider);
         if field == ConfigField::ActiveProvider {
             return; // ActiveProvider is a selector, not text-editable
         }
@@ -635,16 +672,17 @@ impl ConfigEditor {
 
     pub fn apply_edit(&mut self, config: &mut Config) -> Result<(), String> {
         let fields = ConfigField::build_fields(config);
-        let field = fields.get(self.selected).copied().unwrap_or(ConfigField::ActiveProvider);
+        let field = fields
+            .get(self.selected)
+            .copied()
+            .unwrap_or(ConfigField::ActiveProvider);
 
         match field {
-            ConfigField::ActiveProvider => {
-                match self.edit_buffer.to_lowercase().as_str() {
-                    "stepfun" => config.default_provider = Provider::StepFun,
-                    "minimax" => config.default_provider = Provider::MiniMax,
-                    _ => {}
-                }
-            }
+            ConfigField::ActiveProvider => match self.edit_buffer.to_lowercase().as_str() {
+                "stepfun" => config.default_provider = Provider::StepFun,
+                "minimax" => config.default_provider = Provider::MiniMax,
+                _ => {}
+            },
             ConfigField::StepFunApiKey => {
                 if self.edit_buffer.is_empty() {
                     config.stepfun = None;
@@ -688,7 +726,9 @@ impl ConfigEditor {
             self.selected = new_fields.len().saturating_sub(1);
         }
 
-        config.save().map_err(|e| format!("Failed to save config: {}", e))
+        config
+            .save()
+            .map_err(|e| format!("Failed to save config: {}", e))
     }
 
     fn apply_model_edit(&self, config: &mut Config, field: ConfigField) {
@@ -749,7 +789,10 @@ impl ConfigEditor {
             if providers.len() <= 1 {
                 return; // Nothing to cycle
             }
-            let current_idx = providers.iter().position(|p| p == &config.default_provider).unwrap_or(0);
+            let current_idx = providers
+                .iter()
+                .position(|p| p == &config.default_provider)
+                .unwrap_or(0);
             let new_idx = if direction > 0 {
                 (current_idx + 1) % providers.len()
             } else if current_idx == 0 {
@@ -759,7 +802,10 @@ impl ConfigEditor {
             };
             config.default_provider = providers[new_idx].clone();
             if let Err(e) = config.save() {
-                eprintln!("Warning: Failed to save config after cycling provider: {}", e);
+                eprintln!(
+                    "Warning: Failed to save config after cycling provider: {}",
+                    e
+                );
             }
             return;
         }
@@ -782,20 +828,20 @@ impl ConfigEditor {
         }
 
         let current = match provider {
-            Provider::StepFun => {
-                config.stepfun.as_ref()
-                    .and_then(|sf| sf.models.get(category))
-                    .map(|s| s.to_string())
-                    .or_else(|| config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
-                    .unwrap_or_default()
-            }
-            Provider::MiniMax => {
-                config.minimax.as_ref()
-                    .and_then(|mm| mm.models.get(category))
-                    .map(|s| s.to_string())
-                    .or_else(|| config.minimax.as_ref().and_then(|mm| mm.model.clone()))
-                    .unwrap_or_default()
-            }
+            Provider::StepFun => config
+                .stepfun
+                .as_ref()
+                .and_then(|sf| sf.models.get(category))
+                .map(|s| s.to_string())
+                .or_else(|| config.stepfun.as_ref().and_then(|sf| sf.model.clone()))
+                .unwrap_or_default(),
+            Provider::MiniMax => config
+                .minimax
+                .as_ref()
+                .and_then(|mm| mm.models.get(category))
+                .map(|s| s.to_string())
+                .or_else(|| config.minimax.as_ref().and_then(|mm| mm.model.clone()))
+                .unwrap_or_default(),
         };
 
         let current_idx = models.iter().position(|m| m == &current).unwrap_or(0);
@@ -843,16 +889,19 @@ impl ConfigEditor {
     fn get_field_value(&self, config: &Config, field: ConfigField) -> String {
         match field {
             ConfigField::ActiveProvider => config.default_provider.to_string(),
-            ConfigField::StepFunApiKey => {
-                config.stepfun.as_ref().map(|s| s.api_key.clone()).unwrap_or_default()
-            }
-            ConfigField::MiniMaxApiKey => {
-                config.minimax.as_ref().map(|m| m.api_key.clone()).unwrap_or_default()
-            }
+            ConfigField::StepFunApiKey => config
+                .stepfun
+                .as_ref()
+                .map(|s| s.api_key.clone())
+                .unwrap_or_default(),
+            ConfigField::MiniMaxApiKey => config
+                .minimax
+                .as_ref()
+                .map(|m| m.api_key.clone())
+                .unwrap_or_default(),
             _ => String::new(),
         }
     }
-
 }
 
 #[cfg(feature = "tui")]
@@ -939,7 +988,10 @@ mod tests {
             theme: None,
             output_dir: None,
         };
-        assert!(matches!(config.validate(), Err(ConfigError::MissingProviderConfig(_))));
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::MissingProviderConfig(_))
+        ));
     }
 
     #[test]
@@ -967,7 +1019,10 @@ mod tests {
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(config.default_provider, parsed.default_provider);
-        assert_eq!(config.stepfun.as_ref().unwrap().api_key, parsed.stepfun.as_ref().unwrap().api_key);
+        assert_eq!(
+            config.stepfun.as_ref().unwrap().api_key,
+            parsed.stepfun.as_ref().unwrap().api_key
+        );
     }
 
     #[test]
@@ -1085,7 +1140,10 @@ api_key = "sk-backward-compat"
         let parsed: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(parsed.default_provider, Provider::StepFun);
         assert!(parsed.stepfun.is_some());
-        assert_eq!(parsed.stepfun.as_ref().unwrap().api_key, "sk-backward-compat");
+        assert_eq!(
+            parsed.stepfun.as_ref().unwrap().api_key,
+            "sk-backward-compat"
+        );
     }
 
     #[test]
@@ -1115,7 +1173,10 @@ api_key = "sk-backward-compat"
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(config.default_provider, parsed.default_provider);
-        assert_eq!(config.stepfun.as_ref().unwrap().api_key, parsed.stepfun.as_ref().unwrap().api_key);
+        assert_eq!(
+            config.stepfun.as_ref().unwrap().api_key,
+            parsed.stepfun.as_ref().unwrap().api_key
+        );
     }
 
     #[test]
@@ -1177,8 +1238,16 @@ api_key = "sk-backward-compat"
             models: ProviderModels::default(),
         };
         let debug = format!("{:?}", cfg);
-        assert!(debug.contains("sk-s***"), "should mask api_key, got: {}", debug);
-        assert!(!debug.contains("secret-key-12345"), "should NOT contain full key, got: {}", debug);
+        assert!(
+            debug.contains("sk-s***"),
+            "should mask api_key, got: {}",
+            debug
+        );
+        assert!(
+            !debug.contains("secret-key-12345"),
+            "should NOT contain full key, got: {}",
+            debug
+        );
     }
 
     #[test]
@@ -1191,7 +1260,11 @@ api_key = "sk-backward-compat"
             models: ProviderModels::default(),
         };
         let debug = format!("{:?}", cfg);
-        assert!(debug.contains("mm-s***"), "should mask api_key, got: {}", debug);
+        assert!(
+            debug.contains("mm-s***"),
+            "should mask api_key, got: {}",
+            debug
+        );
     }
 
     #[test]
@@ -1203,7 +1276,11 @@ api_key = "sk-backward-compat"
             models: ProviderModels::default(),
         };
         let debug = format!("{:?}", cfg);
-        assert!(debug.contains("(not set)"), "empty key should show '(not set)', got: {}", debug);
+        assert!(
+            debug.contains("(not set)"),
+            "empty key should show '(not set)', got: {}",
+            debug
+        );
     }
 
     #[test]
@@ -1325,7 +1402,10 @@ api_key = "sk-backward-compat"
 
         // Forward: MiniMax -> StepFun (index 1 -> 0 in providers list)
         let providers = config.configured_providers();
-        let start_idx = providers.iter().position(|p| p == &config.default_provider).unwrap();
+        let start_idx = providers
+            .iter()
+            .position(|p| p == &config.default_provider)
+            .unwrap();
 
         // Don't actually save during tests — use a smaller helper. Cycle in-memory:
         // forward
@@ -1342,7 +1422,11 @@ api_key = "sk-backward-compat"
             .iter()
             .position(|p| p == &config.default_provider)
             .unwrap();
-        let prev_idx = if cur_idx == 0 { providers.len() - 1 } else { cur_idx - 1 };
+        let prev_idx = if cur_idx == 0 {
+            providers.len() - 1
+        } else {
+            cur_idx - 1
+        };
         config.default_provider = providers[prev_idx].clone();
         assert_ne!(after_forward, config.default_provider);
     }

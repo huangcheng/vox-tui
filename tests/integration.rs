@@ -1,6 +1,6 @@
 use std::process::Command;
 use vox::config::{Config, MiniMaxConfig, Provider, ProviderModels, StepFunConfig};
-use vox::providers::{create_provider, Message};
+use vox::providers::{Message, create_provider};
 
 #[test]
 fn test_binary_runs() {
@@ -213,5 +213,6 @@ async fn test_minimax_image_generation_success() {
 
     assert!(result.is_ok(), "Expected success, got: {:?}", result);
     let response = result.unwrap();
-    assert_eq!(response.urls, vec!["https://example.com/image1.png"]);    mock.assert_async().await;
+    assert_eq!(response.urls, vec!["https://example.com/image1.png"]);
+    mock.assert_async().await;
 }

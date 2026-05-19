@@ -1,11 +1,10 @@
 use async_trait::async_trait;
 
+use super::openai::OpenAIClient;
 use super::{AIProvider, ProviderResult};
 use super::{
-    ImageResponse, MusicResponse, SearchResponse, SearchResult,
-    SpeechResponse, VideoResponse,
+    ImageResponse, MusicResponse, SearchResponse, SearchResult, SpeechResponse, VideoResponse,
 };
-use super::openai::OpenAIClient;
 
 // ── Default model constants ─────────────────────────────────────────
 
@@ -40,17 +39,30 @@ impl MiniMaxProvider {
 
 #[async_trait]
 impl AIProvider for MiniMaxProvider {
-    fn name(&self) -> &str { "MiniMax" }
+    fn name(&self) -> &str {
+        "MiniMax"
+    }
 
     // MiniMax now uses standard OpenAI-compatible /v1/chat/completions.
     // Return the shared client to get default chat + vision impls.
-    fn openai_client(&self) -> Option<&OpenAIClient> { Some(&self.client) }
+    fn openai_client(&self) -> Option<&OpenAIClient> {
+        Some(&self.client)
+    }
 
-    fn chat_model(&self) -> &str { &self.model }
-    fn vision_model(&self) -> &str { &self.model }
+    fn chat_model(&self) -> &str {
+        &self.model
+    }
+    fn vision_model(&self) -> &str {
+        &self.model
+    }
 
     // ── Image generation ────────────────────────────────────────────
-    async fn image_generate(&self, prompt: &str, n: u8, aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+    async fn image_generate(
+        &self,
+        prompt: &str,
+        n: u8,
+        aspect_ratio: &str,
+    ) -> ProviderResult<ImageResponse> {
         let url = format!("{}/image_generation", self.client.base_url);
         let body = serde_json::json!({
             "model": "image-01",
@@ -74,7 +86,13 @@ impl AIProvider for MiniMaxProvider {
     }
 
     // ── Speech synthesis (t2a_v2) ───────────────────────────────────
-    async fn speech_synthesize(&self, text: &str, voice: &str, speed: f64, format: &str) -> ProviderResult<SpeechResponse> {
+    async fn speech_synthesize(
+        &self,
+        text: &str,
+        voice: &str,
+        speed: f64,
+        format: &str,
+    ) -> ProviderResult<SpeechResponse> {
         let url = format!("{}/t2a_v2", self.client.base_url);
         let body = serde_json::json!({
             "model": self.speech_model,
@@ -95,11 +113,19 @@ impl AIProvider for MiniMaxProvider {
         let audio_hex = data["data"]["audio"].as_str().unwrap_or("");
         let audio_data = hex_to_bytes(audio_hex);
 
-        Ok(SpeechResponse { audio_data, format: format.to_string() })
+        Ok(SpeechResponse {
+            audio_data,
+            format: format.to_string(),
+        })
     }
 
     // ── Video generation ────────────────────────────────────────────
-    async fn video_generate(&self, prompt: &str, _duration: u8, _resolution: &str) -> ProviderResult<VideoResponse> {
+    async fn video_generate(
+        &self,
+        prompt: &str,
+        _duration: u8,
+        _resolution: &str,
+    ) -> ProviderResult<VideoResponse> {
         let url = format!("{}/video_generation", self.client.base_url);
         let body = serde_json::json!({
             "model": "MiniMax-Hailuo-2.3",
@@ -109,11 +135,20 @@ impl AIProvider for MiniMaxProvider {
         let data = self.client.post_json_raw(&url, body).await?;
         let task_id = data["task_id"].as_str().unwrap_or("unknown").to_string();
 
-        Ok(VideoResponse { task_id, status: "processing".to_string(), video_url: None })
+        Ok(VideoResponse {
+            task_id,
+            status: "processing".to_string(),
+            video_url: None,
+        })
     }
 
     // ── Music generation ────────────────────────────────────────────
-    async fn music_generate(&self, prompt: &str, lyrics: Option<&str>, instrumental: bool) -> ProviderResult<MusicResponse> {
+    async fn music_generate(
+        &self,
+        prompt: &str,
+        lyrics: Option<&str>,
+        instrumental: bool,
+    ) -> ProviderResult<MusicResponse> {
         let url = format!("{}/music_generation", self.client.base_url);
         let mut body = serde_json::json!({
             "model": "music-2.6",
@@ -129,7 +164,10 @@ impl AIProvider for MiniMaxProvider {
         let audio_hex = data["data"]["audio"].as_str().unwrap_or("");
         let audio_data = hex_to_bytes(audio_hex);
 
-        Ok(MusicResponse { audio_data, format: "mp3".to_string() })
+        Ok(MusicResponse {
+            audio_data,
+            format: "mp3".to_string(),
+        })
     }
 
     // ── Search (via chat with web_search plugin) ────────────────────
@@ -145,11 +183,13 @@ impl AIProvider for MiniMaxProvider {
 
         let results = data["choices"][0]["message"]["content"]
             .as_str()
-            .map(|s| vec![SearchResult {
-                title: query.to_string(),
-                url: String::new(),
-                snippet: s.to_string(),
-            }])
+            .map(|s| {
+                vec![SearchResult {
+                    title: query.to_string(),
+                    url: String::new(),
+                    snippet: s.to_string(),
+                }]
+            })
             .unwrap_or_default();
 
         Ok(SearchResponse { results })
@@ -163,7 +203,11 @@ fn hex_to_bytes(hex: &str) -> Vec<u8> {
     if hex.is_empty() {
         return Vec::new();
     }
-    let hex = if hex.len() % 2 != 0 { format!("0{hex}") } else { hex.to_string() };
+    let hex = if hex.len() % 2 != 0 {
+        format!("0{hex}")
+    } else {
+        hex.to_string()
+    };
     (0..hex.len())
         .step_by(2)
         .filter_map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
@@ -185,7 +229,10 @@ mod tests {
 
     #[test]
     fn test_hex_to_bytes() {
-        assert_eq!(hex_to_bytes("48656c6c6f"), vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+        assert_eq!(
+            hex_to_bytes("48656c6c6f"),
+            vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]
+        );
         assert_eq!(hex_to_bytes(""), Vec::<u8>::new());
         assert_eq!(hex_to_bytes("ff00"), vec![255, 0]);
     }
@@ -207,7 +254,8 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/chat/completions")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "id": "chatcmpl-123",
                 "model": "test-model",
                 "choices": [{
@@ -215,10 +263,17 @@ mod tests {
                     "finish_reason": "stop"
                 }],
                 "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
-            }"#)
+            }"#,
+            )
             .create();
 
-        let provider = MiniMaxProvider::new("test-key", None, Some(&server.url()), Some("test-model"), None);
+        let provider = MiniMaxProvider::new(
+            "test-key",
+            None,
+            Some(&server.url()),
+            Some("test-model"),
+            None,
+        );
         let result = provider.chat(&[Message::user("hi")]).await.unwrap();
 
         assert_eq!(result.content, "Hello!");
@@ -233,10 +288,12 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/image_generation")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "data": { "image_urls": ["https://example.com/img.png"] },
                 "base_resp": { "status_code": 0 }
-            }"#)
+            }"#,
+            )
             .create();
 
         let provider = MiniMaxProvider::new("test-key", None, Some(&server.url()), None, None);
@@ -252,14 +309,19 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/t2a_v2")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "data": { "audio": "48656c6c6f", "status": 2 },
                 "base_resp": { "status_code": 0 }
-            }"#)
+            }"#,
+            )
             .create();
 
         let provider = MiniMaxProvider::new("test-key", None, Some(&server.url()), None, None);
-        let result = provider.speech_synthesize("hello", "male-qn-qingse", 1.0, "mp3").await.unwrap();
+        let result = provider
+            .speech_synthesize("hello", "male-qn-qingse", 1.0, "mp3")
+            .await
+            .unwrap();
 
         assert_eq!(result.audio_data, vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]);
         assert_eq!(result.format, "mp3");
@@ -272,10 +334,12 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/video_generation")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "task_id": "12345",
                 "base_resp": { "status_code": 0 }
-            }"#)
+            }"#,
+            )
             .create();
 
         let provider = MiniMaxProvider::new("test-key", None, Some(&server.url()), None, None);
@@ -292,14 +356,19 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/music_generation")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "data": { "audio": "ff00", "status": 2 },
                 "base_resp": { "status_code": 0 }
-            }"#)
+            }"#,
+            )
             .create();
 
         let provider = MiniMaxProvider::new("test-key", None, Some(&server.url()), None, None);
-        let result = provider.music_generate("jazz", Some("la la la"), false).await.unwrap();
+        let result = provider
+            .music_generate("jazz", Some("la la la"), false)
+            .await
+            .unwrap();
 
         assert_eq!(result.audio_data, vec![255, 0]);
         mock.assert();
@@ -311,9 +380,11 @@ mod tests {
         let mock = server
             .mock("POST", "/v1/chat/completions")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "choices": [{ "message": { "content": "Search result" } }]
-            }"#)
+            }"#,
+            )
             .create();
 
         let provider = MiniMaxProvider::new("test-key", None, Some(&server.url()), None, None);

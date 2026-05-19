@@ -1,11 +1,11 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout as RatatuiLayout},
     widgets::{Block, Borders},
-    Frame,
 };
 
-use crate::ui::widget::{ChatMessage, InputField, MessageList};
 use crate::ui::AppTheme;
+use crate::ui::widget::{ChatMessage, InputField, MessageList};
 
 pub struct ChatView<'a> {
     messages: &'a [ChatMessage],
@@ -64,8 +64,7 @@ impl<'a> ChatView<'a> {
             "Prompt"
         };
 
-        let input = InputField::new(input_label, self.input_text, self.theme)
-            .focused(true);
+        let input = InputField::new(input_label, self.input_text, self.theme).focused(true);
         f.render_widget(input, input_area);
     }
 }

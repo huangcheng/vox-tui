@@ -1,4 +1,4 @@
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 
 use super::{Message, ProviderError, ProviderResult};
@@ -38,8 +38,13 @@ impl OpenAIClient {
     }
 
     /// POST JSON, handle non-success, parse as serde_json::Value
-    pub async fn post_json_raw(&self, url: &str, body: serde_json::Value) -> ProviderResult<serde_json::Value> {
-        let resp = self.client
+    pub async fn post_json_raw(
+        &self,
+        url: &str,
+        body: serde_json::Value,
+    ) -> ProviderResult<serde_json::Value> {
+        let resp = self
+            .client
             .post(url)
             .headers(self.headers()?)
             .json(&body)
@@ -48,21 +53,36 @@ impl OpenAIClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_else(|e| format!("(failed to read body: {e})"));
-            return Err(ProviderError::Api { status: status.as_u16(), message: text });
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("(failed to read body: {e})"));
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                message: text,
+            });
         }
 
-        resp.json::<serde_json::Value>().await.map_err(|e| ProviderError::Parse(e.to_string()))
+        resp.json::<serde_json::Value>()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))
     }
 
     /// OpenAI-compatible chat completion: POST `/chat/completions`
-    pub async fn chat_completion(&self, model: &str, messages: &[Message]) -> ProviderResult<ChatCompletionResponse> {
+    pub async fn chat_completion(
+        &self,
+        model: &str,
+        messages: &[Message],
+    ) -> ProviderResult<ChatCompletionResponse> {
         let url = format!("{}/chat/completions", self.base_url);
 
-        let api_messages: Vec<ApiMessage> = messages.iter().map(|m| ApiMessage {
-            role: &m.role,
-            content: &m.content,
-        }).collect();
+        let api_messages: Vec<ApiMessage> = messages
+            .iter()
+            .map(|m| ApiMessage {
+                role: &m.role,
+                content: &m.content,
+            })
+            .collect();
 
         let body = ChatCompletionRequest {
             model,
@@ -72,7 +92,8 @@ impl OpenAIClient {
             max_tokens: None,
         };
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .headers(self.headers()?)
             .json(&body)
@@ -81,15 +102,28 @@ impl OpenAIClient {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_else(|e| format!("(failed to read body: {e})"));
-            return Err(ProviderError::Api { status: status.as_u16(), message: text });
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("(failed to read body: {e})"));
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                message: text,
+            });
         }
 
-        resp.json::<ChatCompletionResponse>().await.map_err(|e| ProviderError::Parse(e.to_string()))
+        resp.json::<ChatCompletionResponse>()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))
     }
 
     /// OpenAI-compatible vision completion: same endpoint with multimodal content
-    pub async fn vision_completion(&self, model: &str, image_url: &str, prompt: &str) -> ProviderResult<ChatCompletionResponse> {
+    pub async fn vision_completion(
+        &self,
+        model: &str,
+        image_url: &str,
+        prompt: &str,
+    ) -> ProviderResult<ChatCompletionResponse> {
         let url = format!("{}/chat/completions", self.base_url);
 
         let user_content = serde_json::json!([
@@ -103,8 +137,8 @@ impl OpenAIClient {
         });
 
         let data = self.post_json_raw(&url, body).await?;
-        let response: ChatCompletionResponse = serde_json::from_value(data)
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+        let response: ChatCompletionResponse =
+            serde_json::from_value(data).map_err(|e| ProviderError::Parse(e.to_string()))?;
         Ok(response)
     }
 }
@@ -198,12 +232,19 @@ mod tests {
         let mut server = Server::new_async().await;
         let client = OpenAIClient::new(&server.url(), "key", None);
 
-        let mock = server.mock("POST", "/v1/test")
+        let mock = server
+            .mock("POST", "/v1/test")
             .with_status(200)
             .with_body(json!({"ok": true}).to_string())
             .create();
 
-        let result = client.post_json_raw(&format!("{}/v1/test", server.url()), json!({"input": "hello"})).await.unwrap();
+        let result = client
+            .post_json_raw(
+                &format!("{}/v1/test", server.url()),
+                json!({"input": "hello"}),
+            )
+            .await
+            .unwrap();
         assert_eq!(result["ok"], true);
         mock.assert();
     }
@@ -213,12 +254,15 @@ mod tests {
         let mut server = Server::new_async().await;
         let client = OpenAIClient::new(&server.url(), "key", None);
 
-        let mock = server.mock("POST", "/v1/test")
+        let mock = server
+            .mock("POST", "/v1/test")
             .with_status(401)
             .with_body("Unauthorized")
             .create();
 
-        let result = client.post_json_raw(&format!("{}/v1/test", server.url()), json!({})).await;
+        let result = client
+            .post_json_raw(&format!("{}/v1/test", server.url()), json!({}))
+            .await;
         match result {
             Err(ProviderError::Api { status, message }) => {
                 assert_eq!(status, 401);
@@ -245,13 +289,20 @@ mod tests {
             "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
         });
 
-        let mock = server.mock("POST", "/v1/chat/completions")
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
             .with_status(200)
             .with_body(response_body.to_string())
             .create();
 
-        let messages = vec![Message { role: "user".into(), content: "Hi".into() }];
-        let result = client.chat_completion("test-model", &messages).await.unwrap();
+        let messages = vec![Message {
+            role: "user".into(),
+            content: "Hi".into(),
+        }];
+        let result = client
+            .chat_completion("test-model", &messages)
+            .await
+            .unwrap();
 
         assert_eq!(result.model, "test-model");
         assert_eq!(result.choices.len(), 1);
@@ -264,12 +315,16 @@ mod tests {
         let mut server = Server::new_async().await;
         let client = OpenAIClient::new(&server.url(), "key", None);
 
-        let mock = server.mock("POST", "/v1/chat/completions")
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
             .with_status(500)
             .with_body("Internal Server Error")
             .create();
 
-        let messages = vec![Message { role: "user".into(), content: "Hi".into() }];
+        let messages = vec![Message {
+            role: "user".into(),
+            content: "Hi".into(),
+        }];
         let result = client.chat_completion("test-model", &messages).await;
         match result {
             Err(ProviderError::Api { status, .. }) => assert_eq!(status, 500),
@@ -283,12 +338,16 @@ mod tests {
         let mut server = Server::new_async().await;
         let client = OpenAIClient::new(&server.url(), "key", None);
 
-        let mock = server.mock("POST", "/v1/chat/completions")
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
             .with_status(200)
             .with_body("not json at all")
             .create();
 
-        let messages = vec![Message { role: "user".into(), content: "Hi".into() }];
+        let messages = vec![Message {
+            role: "user".into(),
+            content: "Hi".into(),
+        }];
         let result = client.chat_completion("test-model", &messages).await;
         assert!(result.is_err(), "Should fail on malformed JSON");
         mock.assert();
@@ -304,13 +363,20 @@ mod tests {
             "choices": []
         });
 
-        let mock = server.mock("POST", "/v1/chat/completions")
+        let mock = server
+            .mock("POST", "/v1/chat/completions")
             .with_status(200)
             .with_body(response_body.to_string())
             .create();
 
-        let messages = vec![Message { role: "user".into(), content: "Hi".into() }];
-        let result = client.chat_completion("test-model", &messages).await.unwrap();
+        let messages = vec![Message {
+            role: "user".into(),
+            content: "Hi".into(),
+        }];
+        let result = client
+            .chat_completion("test-model", &messages)
+            .await
+            .unwrap();
         assert!(result.choices.is_empty());
         mock.assert();
     }

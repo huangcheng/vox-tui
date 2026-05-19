@@ -11,7 +11,10 @@ pub enum SlashCommand {
 
 pub const COMMANDS: &[(&str, &str)] = &[
     ("provider", "Switch AI provider (e.g., /provider minimax)"),
-    ("model", "Switch model within current provider (e.g., /model speech-02-hd)"),
+    (
+        "model",
+        "Switch model within current provider (e.g., /model speech-02-hd)",
+    ),
     ("help", "Show available slash commands"),
     ("clear", "Clear chat history"),
     ("save", "Save current conversation"),
@@ -74,7 +77,9 @@ mod tests {
     fn test_parse_provider_command() {
         assert_eq!(
             parse_slash_command("/provider minimax"),
-            Some(SlashCommand::Provider { name: "minimax".into() })
+            Some(SlashCommand::Provider {
+                name: "minimax".into()
+            })
         );
     }
 
@@ -82,7 +87,9 @@ mod tests {
     fn test_parse_model_command() {
         assert_eq!(
             parse_slash_command("/model speech-02-hd"),
-            Some(SlashCommand::Model { name: "speech-02-hd".into() })
+            Some(SlashCommand::Model {
+                name: "speech-02-hd".into()
+            })
         );
     }
 
@@ -138,7 +145,9 @@ mod tests {
     fn test_parse_with_whitespace() {
         assert_eq!(
             parse_slash_command("  /provider   minimax  "),
-            Some(SlashCommand::Provider { name: "minimax".into() })
+            Some(SlashCommand::Provider {
+                name: "minimax".into()
+            })
         );
     }
 
@@ -146,7 +155,9 @@ mod tests {
     fn test_parse_case_insensitive() {
         assert_eq!(
             parse_slash_command("/PROVIDER minimax"),
-            Some(SlashCommand::Provider { name: "minimax".into() })
+            Some(SlashCommand::Provider {
+                name: "minimax".into()
+            })
         );
     }
 

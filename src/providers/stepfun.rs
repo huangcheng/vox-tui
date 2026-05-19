@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 
+use super::openai::OpenAIClient;
 use super::{AIProvider, ProviderError, ProviderResult};
 use super::{ImageResponse, SearchResponse, SearchResult, SpeechResponse};
-use super::openai::OpenAIClient;
 
 // ── Default model constants ─────────────────────────────────────────
 
@@ -45,15 +45,28 @@ impl StepFunProvider {
 
 #[async_trait]
 impl AIProvider for StepFunProvider {
-    fn name(&self) -> &str { "StepFun" }
+    fn name(&self) -> &str {
+        "StepFun"
+    }
 
-    fn openai_client(&self) -> Option<&OpenAIClient> { Some(&self.client) }
+    fn openai_client(&self) -> Option<&OpenAIClient> {
+        Some(&self.client)
+    }
 
-    fn chat_model(&self) -> &str { &self.chat_model }
-    fn vision_model(&self) -> &str { &self.vision_model }
+    fn chat_model(&self) -> &str {
+        &self.chat_model
+    }
+    fn vision_model(&self) -> &str {
+        &self.vision_model
+    }
 
     // ── Override: image generation (non-standard endpoint) ──────────
-    async fn image_generate(&self, prompt: &str, _n: u8, _aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+    async fn image_generate(
+        &self,
+        prompt: &str,
+        _n: u8,
+        _aspect_ratio: &str,
+    ) -> ProviderResult<ImageResponse> {
         // StepFun image uses a separate endpoint, not under /v1
         let url = "https://api.stepfun.com/step_plan/v1/images/generations";
         let body = serde_json::json!({
@@ -66,11 +79,13 @@ impl AIProvider for StepFunProvider {
         });
 
         let data = self.client.post_json_raw(url, body).await?;
-        let arr = data.get("data")
+        let arr = data
+            .get("data")
             .and_then(|d| d.as_array())
             .ok_or_else(|| ProviderError::Parse("missing data array in image response".into()))?;
 
-        let urls: Vec<String> = arr.iter()
+        let urls: Vec<String> = arr
+            .iter()
             .filter_map(|item| item.get("url").and_then(|u| u.as_str()).map(String::from))
             .collect();
 
@@ -78,7 +93,13 @@ impl AIProvider for StepFunProvider {
     }
 
     // ── Override: speech synthesis (step_plan endpoint) ─────────────
-    async fn speech_synthesize(&self, text: &str, voice: &str, speed: f64, format: &str) -> ProviderResult<SpeechResponse> {
+    async fn speech_synthesize(
+        &self,
+        text: &str,
+        voice: &str,
+        speed: f64,
+        format: &str,
+    ) -> ProviderResult<SpeechResponse> {
         let mut body = serde_json::json!({
             "model": self.speech_model,
             "input": text,
@@ -88,11 +109,19 @@ impl AIProvider for StepFunProvider {
 
         // Speed mapping: cli uses 0.5-2.0 range, instruction-based control
         if speed != 1.0 {
-            let pace = if speed < 0.8 { "偏慢" } else if speed > 1.2 { "偏快" } else { "适中" };
+            let pace = if speed < 0.8 {
+                "偏慢"
+            } else if speed > 1.2 {
+                "偏快"
+            } else {
+                "适中"
+            };
             body["instruction"] = serde_json::json!(format!("语速{}", pace));
         }
 
-        let resp = self.client.client
+        let resp = self
+            .client
+            .client
             .post(SPEECH_ENDPOINT)
             .headers(self.client.headers()?)
             .json(&body)
@@ -101,12 +130,21 @@ impl AIProvider for StepFunProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_else(|e| format!("(failed to read body: {e})"));
-            return Err(ProviderError::Api { status: status.as_u16(), message: text });
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("(failed to read body: {e})"));
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                message: text,
+            });
         }
 
         let audio_data = resp.bytes().await?.to_vec();
-        Ok(SpeechResponse { audio_data, format: format.to_string() })
+        Ok(SpeechResponse {
+            audio_data,
+            format: format.to_string(),
+        })
     }
 
     // ── Override: search (StepFun-specific endpoint) ────────────────
@@ -118,15 +156,27 @@ impl AIProvider for StepFunProvider {
         });
 
         let data = self.client.post_json_raw(&url, body).await?;
-        let results_raw: Vec<SearchResultRaw> = data.get("results")
+        let results_raw: Vec<SearchResultRaw> = data
+            .get("results")
             .and_then(|r| serde_json::from_value(r.clone()).ok())
             .unwrap_or_default();
 
-        let results: Vec<SearchResult> = results_raw.into_iter().map(|r| SearchResult {
-            title: if r.title.is_empty() { r.url.clone() } else { r.title },
-            url: r.url,
-            snippet: if r.snippet.is_empty() { r.content } else { r.snippet },
-        }).collect();
+        let results: Vec<SearchResult> = results_raw
+            .into_iter()
+            .map(|r| SearchResult {
+                title: if r.title.is_empty() {
+                    r.url.clone()
+                } else {
+                    r.title
+                },
+                url: r.url,
+                snippet: if r.snippet.is_empty() {
+                    r.content
+                } else {
+                    r.snippet
+                },
+            })
+            .collect();
 
         Ok(SearchResponse { results })
     }
@@ -170,7 +220,14 @@ mod tests {
 
     #[test]
     fn test_stepfun_custom_models() {
-        let provider = StepFunProvider::new("key", None, Some("custom-chat"), Some("custom-img"), None, None);
+        let provider = StepFunProvider::new(
+            "key",
+            None,
+            Some("custom-chat"),
+            Some("custom-img"),
+            None,
+            None,
+        );
         assert_eq!(provider.chat_model(), "custom-chat");
         assert_eq!(provider.image_model, "custom-img");
     }
@@ -192,7 +249,8 @@ mod tests {
             }"#)
             .create();
 
-        let provider = StepFunProvider::new("test-key", Some(&server.url()), None, None, None, None);
+        let provider =
+            StepFunProvider::new("test-key", Some(&server.url()), None, None, None, None);
         let result = provider.search("rust", 2).await.unwrap();
 
         assert_eq!(result.results.len(), 2);
@@ -210,18 +268,24 @@ mod tests {
             .mock("POST", "/v1/chat/completions")
             .match_header("authorization", "Bearer test-key")
             .with_status(200)
-            .with_body(r#"{
+            .with_body(
+                r#"{
                 "id": "chatcmpl-123",
                 "model": "step-1v-8k",
                 "choices": [{
                     "message": { "role": "assistant", "content": "A sunset." },
                     "finish_reason": "stop"
                 }]
-            }"#)
+            }"#,
+            )
             .create();
 
-        let provider = StepFunProvider::new("test-key", Some(&server.url()), None, None, None, None);
-        let result = provider.vision("https://example.com/img.jpg", Some("Describe")).await.unwrap();
+        let provider =
+            StepFunProvider::new("test-key", Some(&server.url()), None, None, None, None);
+        let result = provider
+            .vision("https://example.com/img.jpg", Some("Describe"))
+            .await
+            .unwrap();
 
         assert_eq!(result.description, "A sunset.");
         mock.assert();

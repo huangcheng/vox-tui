@@ -1,13 +1,13 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout as RatatuiLayout},
     style::Stylize,
     widgets::{Block, BorderType, Borders, Padding, Paragraph},
-    Frame,
 };
 use ratatui_image::{Image, protocol::Protocol};
 
-use crate::ui::widget::{InputField, Spinner};
 use crate::ui::AppTheme;
+use crate::ui::widget::{InputField, Spinner};
 
 pub struct ImageView<'a> {
     prompt: &'a str,
@@ -40,7 +40,12 @@ impl<'a> ImageView<'a> {
         self.render_with_image(f, area, None);
     }
 
-    pub fn render_with_image(&self, f: &mut Frame, area: ratatui::layout::Rect, image_protocol: Option<&Protocol>) {
+    pub fn render_with_image(
+        &self,
+        f: &mut Frame,
+        area: ratatui::layout::Rect,
+        image_protocol: Option<&Protocol>,
+    ) {
         let chunks = RatatuiLayout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -66,9 +71,7 @@ impl<'a> ImageView<'a> {
             let inner = preview_block.inner(preview_area);
             f.render_widget(preview_block, preview_area);
 
-            let spinner = Spinner::new()
-                .label("Generating image...")
-                .theme(theme);
+            let spinner = Spinner::new().label("Generating image...").theme(theme);
             f.render_widget(spinner, inner);
         } else if let Some(proto) = image_protocol {
             let inner = preview_block.inner(preview_area);
@@ -95,8 +98,7 @@ impl<'a> ImageView<'a> {
             "Prompt"
         };
 
-        let input = InputField::new(input_label, self.prompt, theme)
-            .focused(true);
+        let input = InputField::new(input_label, self.prompt, theme).focused(true);
         f.render_widget(input, input_area);
     }
 }

@@ -58,7 +58,12 @@ impl Widget for InputField<'_> {
         };
 
         let cursor = if self.focused {
-            Span::styled("▏", self.theme.style(self.theme.accent).add_modifier(Modifier::BOLD))
+            Span::styled(
+                "▏",
+                self.theme
+                    .style(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )
         } else {
             Span::raw("")
         };
@@ -71,7 +76,11 @@ impl Widget for InputField<'_> {
             .block(
                 Block::default()
                     .title(format!(" {} ", self.label))
-                    .title_style(self.theme.style(self.theme.accent).add_modifier(Modifier::BOLD))
+                    .title_style(
+                        self.theme
+                            .style(self.theme.accent)
+                            .add_modifier(Modifier::BOLD),
+                    )
                     .borders(Borders::ALL)
                     .border_type(border_type)
                     .border_style(if self.focused {

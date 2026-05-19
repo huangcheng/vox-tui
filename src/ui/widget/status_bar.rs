@@ -46,15 +46,10 @@ impl Widget for StatusBar<'_> {
                 .add_modifier(Modifier::BOLD),
         );
 
-        let position_span = Span::styled(
-            self.position,
-            self.theme.style(self.theme.text_secondary),
-        );
+        let position_span =
+            Span::styled(self.position, self.theme.style(self.theme.text_secondary));
 
-        let help_span = Span::styled(
-            self.help,
-            self.theme.style(self.theme.text_muted),
-        );
+        let help_span = Span::styled(self.help, self.theme.style(self.theme.text_muted));
 
         let line = Line::from(vec![
             mode_span,

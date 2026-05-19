@@ -1,13 +1,13 @@
+pub mod minimax;
 pub mod openai;
 pub mod stepfun;
-pub mod minimax;
 
 use async_trait::async_trait;
 
 // Re-export everything at the module level for convenient imports
+pub use minimax::MiniMaxProvider;
 pub use openai::OpenAIClient;
 pub use stepfun::StepFunProvider;
-pub use minimax::MiniMaxProvider;
 
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
@@ -29,7 +29,9 @@ impl std::fmt::Display for ProviderError {
             ProviderError::Http(e) => write!(f, "HTTP error: {}", e),
             ProviderError::Parse(msg) => write!(f, "Parse error: {}", msg),
             ProviderError::Header(msg) => write!(f, "Header error: {}", msg),
-            ProviderError::Api { status, message } => write!(f, "API error ({}): {}", status, message),
+            ProviderError::Api { status, message } => {
+                write!(f, "API error ({}): {}", status, message)
+            }
             ProviderError::Config(msg) => write!(f, "Config error: {}", msg),
             ProviderError::Unsupported(msg) => write!(f, "Provider does not support {}", msg),
         }
@@ -52,13 +54,22 @@ pub struct Message {
 
 impl Message {
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: "user".to_string(), content: content.into() }
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: "assistant".to_string(), content: content.into() }
+        Self {
+            role: "assistant".to_string(),
+            content: content.into(),
+        }
     }
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: "system".to_string(), content: content.into() }
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
     }
 }
 
@@ -77,34 +88,75 @@ pub struct UsageInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct ImageResponse { pub urls: Vec<String> }
+pub struct ImageResponse {
+    pub urls: Vec<String>,
+}
 #[derive(Debug, Clone)]
-pub struct SpeechResponse { pub audio_data: Vec<u8>, pub format: String }
+pub struct SpeechResponse {
+    pub audio_data: Vec<u8>,
+    pub format: String,
+}
 #[derive(Debug, Clone)]
-pub struct VideoResponse { pub task_id: String, pub status: String, pub video_url: Option<String> }
+pub struct VideoResponse {
+    pub task_id: String,
+    pub status: String,
+    pub video_url: Option<String>,
+}
 #[derive(Debug, Clone)]
-pub struct MusicResponse { pub audio_data: Vec<u8>, pub format: String }
+pub struct MusicResponse {
+    pub audio_data: Vec<u8>,
+    pub format: String,
+}
 #[derive(Debug, Clone)]
-pub struct SearchResult { pub title: String, pub url: String, pub snippet: String }
+pub struct SearchResult {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
 #[derive(Debug, Clone)]
-pub struct SearchResponse { pub results: Vec<SearchResult> }
+pub struct SearchResponse {
+    pub results: Vec<SearchResult>,
+}
 #[derive(Debug, Clone)]
-pub struct VisionResponse { pub description: String }
+pub struct VisionResponse {
+    pub description: String,
+}
 
 /// Result sent from spawned async tasks back to the TUI event loop
 #[derive(Debug)]
 pub enum WorkResult {
-    ChatResponse { content: String, model: String },
+    ChatResponse {
+        content: String,
+        model: String,
+    },
     StreamChunk(String),
     StreamDone,
     Error(String),
-    ImageGenerated { urls: Vec<String> },
-    ImageDownloaded { image_data: Vec<u8> },
-    SpeechGenerated { audio_data: Vec<u8>, format: String },
-    VideoGenerated { task_id: String, status: String, video_url: Option<String> },
-    MusicGenerated { audio_data: Vec<u8>, format: String },
-    SearchResults { results: Vec<SearchResult> },
-    VisionResult { description: String },
+    ImageGenerated {
+        urls: Vec<String>,
+    },
+    ImageDownloaded {
+        image_data: Vec<u8>,
+    },
+    SpeechGenerated {
+        audio_data: Vec<u8>,
+        format: String,
+    },
+    VideoGenerated {
+        task_id: String,
+        status: String,
+        video_url: Option<String>,
+    },
+    MusicGenerated {
+        audio_data: Vec<u8>,
+        format: String,
+    },
+    SearchResults {
+        results: Vec<SearchResult>,
+    },
+    VisionResult {
+        description: String,
+    },
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────────
@@ -141,20 +193,29 @@ pub trait AIProvider: Send + Sync {
 
     /// Return the shared OpenAI-compatible client if this provider supports it.
     /// If None, chat/vision/search default to Unsupported.
-    fn openai_client(&self) -> Option<&OpenAIClient> { None }
+    fn openai_client(&self) -> Option<&OpenAIClient> {
+        None
+    }
 
     /// Default model for chat completions (used by default chat impl)
-    fn chat_model(&self) -> &str { "unknown" }
+    fn chat_model(&self) -> &str {
+        "unknown"
+    }
     /// Default model for vision (used by default vision impl)
-    fn vision_model(&self) -> &str { "unknown" }
+    fn vision_model(&self) -> &str {
+        "unknown"
+    }
 
     // ── Default: OpenAI-compatible chat ─────────────────────────────
     async fn chat(&self, messages: &[Message]) -> ProviderResult<CompletionResponse> {
-        let client = self.openai_client()
+        let client = self
+            .openai_client()
             .ok_or_else(|| ProviderError::Unsupported("chat".into()))?;
         let resp = client.chat_completion(self.chat_model(), messages).await?;
 
-        let choice = resp.choices.first()
+        let choice = resp
+            .choices
+            .first()
             .ok_or_else(|| ProviderError::Parse("No choices in response".into()))?;
 
         Ok(CompletionResponse {
@@ -169,8 +230,13 @@ pub trait AIProvider: Send + Sync {
     }
 
     // ── Default: OpenAI-compatible vision ───────────────────────────
-    async fn vision(&self, image_path: &str, prompt: Option<&str>) -> ProviderResult<VisionResponse> {
-        let client = self.openai_client()
+    async fn vision(
+        &self,
+        image_path: &str,
+        prompt: Option<&str>,
+    ) -> ProviderResult<VisionResponse> {
+        let client = self
+            .openai_client()
             .ok_or_else(|| ProviderError::Unsupported("vision".into()))?;
 
         let image_url = if image_path.starts_with("http://") || image_path.starts_with("https://") {
@@ -180,8 +246,12 @@ pub trait AIProvider: Send + Sync {
         };
 
         let text = prompt.unwrap_or("Describe this image in detail.");
-        let resp = client.vision_completion(self.vision_model(), &image_url, text).await?;
-        let description = resp.choices.first()
+        let resp = client
+            .vision_completion(self.vision_model(), &image_url, text)
+            .await?;
+        let description = resp
+            .choices
+            .first()
             .map(|c| c.message.content.clone())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "No description available".to_string());
@@ -195,16 +265,37 @@ pub trait AIProvider: Send + Sync {
     }
 
     // ── No defaults: must override if supported ─────────────────────
-    async fn image_generate(&self, _prompt: &str, _n: u8, _aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+    async fn image_generate(
+        &self,
+        _prompt: &str,
+        _n: u8,
+        _aspect_ratio: &str,
+    ) -> ProviderResult<ImageResponse> {
         Err(ProviderError::Unsupported("image generation".into()))
     }
-    async fn speech_synthesize(&self, _text: &str, _voice: &str, _speed: f64, _format: &str) -> ProviderResult<SpeechResponse> {
+    async fn speech_synthesize(
+        &self,
+        _text: &str,
+        _voice: &str,
+        _speed: f64,
+        _format: &str,
+    ) -> ProviderResult<SpeechResponse> {
         Err(ProviderError::Unsupported("speech synthesis".into()))
     }
-    async fn video_generate(&self, _prompt: &str, _duration: u8, _resolution: &str) -> ProviderResult<VideoResponse> {
+    async fn video_generate(
+        &self,
+        _prompt: &str,
+        _duration: u8,
+        _resolution: &str,
+    ) -> ProviderResult<VideoResponse> {
         Err(ProviderError::Unsupported("video generation".into()))
     }
-    async fn music_generate(&self, _prompt: &str, _lyrics: Option<&str>, _instrumental: bool) -> ProviderResult<MusicResponse> {
+    async fn music_generate(
+        &self,
+        _prompt: &str,
+        _lyrics: Option<&str>,
+        _instrumental: bool,
+    ) -> ProviderResult<MusicResponse> {
         Err(ProviderError::Unsupported("music generation".into()))
     }
 }
@@ -254,27 +345,54 @@ impl RetryProvider {
 
 #[async_trait]
 impl AIProvider for RetryProvider {
-    fn name(&self) -> &str { self.inner.name() }
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
 
     async fn chat(&self, messages: &[Message]) -> ProviderResult<CompletionResponse> {
         retry(|| self.inner.chat(messages)).await
     }
-    async fn image_generate(&self, prompt: &str, n: u8, aspect_ratio: &str) -> ProviderResult<ImageResponse> {
+    async fn image_generate(
+        &self,
+        prompt: &str,
+        n: u8,
+        aspect_ratio: &str,
+    ) -> ProviderResult<ImageResponse> {
         retry(|| self.inner.image_generate(prompt, n, aspect_ratio)).await
     }
-    async fn speech_synthesize(&self, text: &str, voice: &str, speed: f64, format: &str) -> ProviderResult<SpeechResponse> {
+    async fn speech_synthesize(
+        &self,
+        text: &str,
+        voice: &str,
+        speed: f64,
+        format: &str,
+    ) -> ProviderResult<SpeechResponse> {
         retry(|| self.inner.speech_synthesize(text, voice, speed, format)).await
     }
-    async fn video_generate(&self, prompt: &str, duration: u8, resolution: &str) -> ProviderResult<VideoResponse> {
+    async fn video_generate(
+        &self,
+        prompt: &str,
+        duration: u8,
+        resolution: &str,
+    ) -> ProviderResult<VideoResponse> {
         retry(|| self.inner.video_generate(prompt, duration, resolution)).await
     }
-    async fn music_generate(&self, prompt: &str, lyrics: Option<&str>, instrumental: bool) -> ProviderResult<MusicResponse> {
+    async fn music_generate(
+        &self,
+        prompt: &str,
+        lyrics: Option<&str>,
+        instrumental: bool,
+    ) -> ProviderResult<MusicResponse> {
         retry(|| self.inner.music_generate(prompt, lyrics, instrumental)).await
     }
     async fn search(&self, query: &str, count: u8) -> ProviderResult<SearchResponse> {
         retry(|| self.inner.search(query, count)).await
     }
-    async fn vision(&self, image_path: &str, prompt: Option<&str>) -> ProviderResult<VisionResponse> {
+    async fn vision(
+        &self,
+        image_path: &str,
+        prompt: Option<&str>,
+    ) -> ProviderResult<VisionResponse> {
         retry(|| self.inner.vision(image_path, prompt)).await
     }
 }
@@ -293,7 +411,9 @@ pub fn create_provider_with_client(
 ) -> ProviderResult<Box<dyn AIProvider>> {
     let provider: Box<dyn AIProvider> = match &config.default_provider {
         ConfigProvider::StepFun => {
-            let sf = config.stepfun.as_ref()
+            let sf = config
+                .stepfun
+                .as_ref()
                 .ok_or_else(|| ProviderError::Config("StepFun config missing".into()))?;
             Box::new(StepFunProvider::new(
                 &sf.api_key,
@@ -305,7 +425,9 @@ pub fn create_provider_with_client(
             ))
         }
         ConfigProvider::MiniMax => {
-            let mm = config.minimax.as_ref()
+            let mm = config
+                .minimax
+                .as_ref()
                 .ok_or_else(|| ProviderError::Config("MiniMax config missing".into()))?;
             Box::new(MiniMaxProvider::new(
                 &mm.api_key,
@@ -324,8 +446,8 @@ pub fn create_provider_with_client(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn test_message_creation() {
@@ -345,7 +467,10 @@ mod tests {
         let err = ProviderError::Config("missing key".into());
         assert!(err.to_string().contains("Config error"));
 
-        let err = ProviderError::Api { status: 500, message: "server error".into() };
+        let err = ProviderError::Api {
+            status: 500,
+            message: "server error".into(),
+        };
         assert!(err.to_string().contains("500"));
 
         let err = ProviderError::Unsupported("video".into());
@@ -355,16 +480,33 @@ mod tests {
     #[test]
     fn test_work_result_variants() {
         let variants = [
-            WorkResult::ChatResponse { content: "hi".into(), model: "m".into() },
+            WorkResult::ChatResponse {
+                content: "hi".into(),
+                model: "m".into(),
+            },
             WorkResult::StreamChunk("chunk".into()),
             WorkResult::StreamDone,
             WorkResult::Error("fail".into()),
-            WorkResult::ImageGenerated { urls: vec!["u".into()] },
-            WorkResult::SpeechGenerated { audio_data: vec![1, 2, 3], format: "mp3".into() },
-            WorkResult::VideoGenerated { task_id: "t".into(), status: "ok".into(), video_url: None },
-            WorkResult::MusicGenerated { audio_data: vec![], format: "mp3".into() },
+            WorkResult::ImageGenerated {
+                urls: vec!["u".into()],
+            },
+            WorkResult::SpeechGenerated {
+                audio_data: vec![1, 2, 3],
+                format: "mp3".into(),
+            },
+            WorkResult::VideoGenerated {
+                task_id: "t".into(),
+                status: "ok".into(),
+                video_url: None,
+            },
+            WorkResult::MusicGenerated {
+                audio_data: vec![],
+                format: "mp3".into(),
+            },
             WorkResult::SearchResults { results: vec![] },
-            WorkResult::VisionResult { description: "desc".into() },
+            WorkResult::VisionResult {
+                description: "desc".into(),
+            },
         ];
         assert_eq!(variants.len(), 10);
     }
@@ -440,10 +582,22 @@ mod tests {
 
     #[test]
     fn test_is_transient_detection() {
-        assert!(is_transient(&ProviderError::Api { status: 500, message: "err".into() }));
-        assert!(is_transient(&ProviderError::Api { status: 502, message: "err".into() }));
-        assert!(!is_transient(&ProviderError::Api { status: 400, message: "err".into() }));
-        assert!(!is_transient(&ProviderError::Api { status: 404, message: "err".into() }));
+        assert!(is_transient(&ProviderError::Api {
+            status: 500,
+            message: "err".into()
+        }));
+        assert!(is_transient(&ProviderError::Api {
+            status: 502,
+            message: "err".into()
+        }));
+        assert!(!is_transient(&ProviderError::Api {
+            status: 400,
+            message: "err".into()
+        }));
+        assert!(!is_transient(&ProviderError::Api {
+            status: 404,
+            message: "err".into()
+        }));
         assert!(!is_transient(&ProviderError::Config("err".into())));
     }
 
@@ -455,17 +609,26 @@ mod tests {
 
     #[async_trait]
     impl AIProvider for MockProvider {
-        fn name(&self) -> &str { "Mock" }
+        fn name(&self) -> &str {
+            "Mock"
+        }
         async fn chat(&self, _messages: &[Message]) -> ProviderResult<CompletionResponse> {
             let count = self.call_count.fetch_add(1, Ordering::SeqCst);
             if count < self.errors_before_success {
                 if self.transient {
-                    Err(ProviderError::Api { status: 500, message: "server error".into() })
+                    Err(ProviderError::Api {
+                        status: 500,
+                        message: "server error".into(),
+                    })
                 } else {
                     Err(ProviderError::Unsupported("test".into()))
                 }
             } else {
-                Ok(CompletionResponse { content: "ok".into(), model: "mock".into(), usage: None })
+                Ok(CompletionResponse {
+                    content: "ok".into(),
+                    model: "mock".into(),
+                    usage: None,
+                })
             }
         }
     }
@@ -473,7 +636,11 @@ mod tests {
     #[tokio::test]
     async fn test_retry_succeeds_after_two_failures() {
         let counter = Arc::new(AtomicUsize::new(0));
-        let mock = MockProvider { call_count: counter.clone(), errors_before_success: 2, transient: true };
+        let mock = MockProvider {
+            call_count: counter.clone(),
+            errors_before_success: 2,
+            transient: true,
+        };
         let retry = RetryProvider::new(Box::new(mock));
         let result = retry.chat(&[Message::user("hello")]).await;
         assert!(result.is_ok());
@@ -483,7 +650,11 @@ mod tests {
     #[tokio::test]
     async fn test_retry_returns_last_error_after_max_retries() {
         let counter = Arc::new(AtomicUsize::new(0));
-        let mock = MockProvider { call_count: counter.clone(), errors_before_success: 10, transient: true };
+        let mock = MockProvider {
+            call_count: counter.clone(),
+            errors_before_success: 10,
+            transient: true,
+        };
         let retry = RetryProvider::new(Box::new(mock));
         let result = retry.chat(&[Message::user("hello")]).await;
         assert!(result.is_err());
@@ -493,7 +664,11 @@ mod tests {
     #[tokio::test]
     async fn test_no_retry_on_non_transient_error() {
         let counter = Arc::new(AtomicUsize::new(0));
-        let mock = MockProvider { call_count: counter.clone(), errors_before_success: 10, transient: false };
+        let mock = MockProvider {
+            call_count: counter.clone(),
+            errors_before_success: 10,
+            transient: false,
+        };
         let retry = RetryProvider::new(Box::new(mock));
         let result = retry.chat(&[Message::user("hello")]).await;
         assert!(result.is_err());

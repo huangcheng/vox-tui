@@ -1,10 +1,10 @@
 mod capabilities;
+pub mod cli;
+pub mod command;
 mod config;
 mod models;
 mod output;
 pub mod providers;
-pub mod cli;
-pub mod command;
 
 #[cfg(feature = "tui")]
 mod app;
@@ -14,16 +14,19 @@ mod input;
 pub mod ui;
 
 use clap::{CommandFactory, Parser};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 use std::io;
 
 use crate::capabilities::Capability;
-use crate::cli::{Cli, Commands, GlobalOpts, TextCommand, ImageCommand, SpeechCommand, VideoCommand, MusicCommand, SearchCommand, VisionCommand, ProvidersCommand, ModelsCommand, ConfigCommand};
+use crate::cli::{
+    Cli, Commands, ConfigCommand, GlobalOpts, ImageCommand, ModelsCommand, MusicCommand,
+    ProvidersCommand, SearchCommand, SpeechCommand, TextCommand, VideoCommand, VisionCommand,
+};
 use crate::config::{Config, Provider as ConfigProvider};
 use crate::output::{Output, OutputFormat};
 use crate::providers::create_provider;
-use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -38,7 +41,9 @@ async fn main() -> std::io::Result<()> {
         }
         #[cfg(not(feature = "tui"))]
         {
-            Err(std::io::Error::other("TUI is not enabled in this build. Rebuild with: cargo build --features tui"))
+            Err(std::io::Error::other(
+                "TUI is not enabled in this build. Rebuild with: cargo build --features tui",
+            ))
         }
     } else {
         // No subcommand and no --tui: print help
@@ -66,8 +71,14 @@ fn resolve_provider(global: &GlobalOpts, config: &Config) -> Result<ConfigProvid
     let default = &config.default_provider;
 
     // 3. Auto-detect: only 1 provider has API key
-    let stepfun_has_key = config.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty());
-    let minimax_has_key = config.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty());
+    let stepfun_has_key = config
+        .stepfun
+        .as_ref()
+        .is_some_and(|s| !s.api_key.is_empty());
+    let minimax_has_key = config
+        .minimax
+        .as_ref()
+        .is_some_and(|m| !m.api_key.is_empty());
 
     match (stepfun_has_key, minimax_has_key) {
         (true, false) => return Ok(ConfigProvider::StepFun),
@@ -107,7 +118,10 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
         match Config::load_from(std::path::Path::new(config_path)) {
             Ok(c) => c,
             Err(e) => {
-                return Err(std::io::Error::other(format!("Failed to load config from {}: {e}", config_path)));
+                return Err(std::io::Error::other(format!(
+                    "Failed to load config from {}: {e}",
+                    config_path
+                )));
             }
         }
     } else {
@@ -212,7 +226,9 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
         TextCommand::Chat { message, system } => {
             // If no message provided, enter REPL mode
             if let Some(msg) = message {
-                let Some((provider, spinner)) = prepare_provider(config, Capability::Chat, "Generating response...", output) else {
+                let Some((provider, spinner)) =
+                    prepare_provider(config, Capability::Chat, "Generating response...", output)
+                else {
                     return;
                 };
 
@@ -226,7 +242,9 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
                 };
 
                 let result = provider.chat(&messages).await;
-                if let Some(sp) = spinner { sp.finish_and_clear(); }
+                if let Some(sp) = spinner {
+                    sp.finish_and_clear();
+                }
 
                 match result {
                     Ok(resp) => output.result(&resp.content),
@@ -255,13 +273,17 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
             handle_text_repl(provider, system, output).await;
         }
         TextCommand::Complete { prompt } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::Chat, "Generating completion...", output) else {
+            let Some((provider, spinner)) =
+                prepare_provider(config, Capability::Chat, "Generating completion...", output)
+            else {
                 return;
             };
 
             let messages = vec![providers::Message::user(prompt)];
             let result = provider.chat(&messages).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => output.result(&resp.content),
@@ -272,7 +294,11 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
 }
 
 /// Interactive chat REPL handler
-async fn handle_text_repl(provider: Box<dyn providers::AIProvider>, system: Option<String>, output: &Output) {
+async fn handle_text_repl(
+    provider: Box<dyn providers::AIProvider>,
+    system: Option<String>,
+    output: &Output,
+) {
     let mut rl = match DefaultEditor::new() {
         Ok(rl) => rl,
         Err(e) => {
@@ -340,13 +366,25 @@ async fn handle_text_repl(provider: Box<dyn providers::AIProvider>, system: Opti
 
 async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
     match cmd {
-        ImageCommand::Generate { prompt, aspect_ratio, output: out_path, n } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::ImageGenerate, "Generating image...", output) else {
+        ImageCommand::Generate {
+            prompt,
+            aspect_ratio,
+            output: out_path,
+            n,
+        } => {
+            let Some((provider, spinner)) = prepare_provider(
+                config,
+                Capability::ImageGenerate,
+                "Generating image...",
+                output,
+            ) else {
                 return;
             };
 
             let result = provider.image_generate(&prompt, n, &aspect_ratio).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => {
@@ -357,7 +395,8 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
                             } else {
                                 let p = std::path::Path::new(&path);
                                 let parent = p.parent();
-                                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+                                let stem =
+                                    p.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
                                 let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("png");
                                 let filename = format!("{stem}_{i}.{ext}");
                                 match parent {
@@ -387,14 +426,29 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
 
 async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
     match cmd {
-        SpeechCommand::Generate { text, out, voice, speed, format } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::SpeechSynthesize, "Generating speech...", output) else {
+        SpeechCommand::Generate {
+            text,
+            out,
+            voice,
+            speed,
+            format,
+        } => {
+            let Some((provider, spinner)) = prepare_provider(
+                config,
+                Capability::SpeechSynthesize,
+                "Generating speech...",
+                output,
+            ) else {
                 return;
             };
 
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            let result = provider.speech_synthesize(&text, &voice, speed, &format).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            let result = provider
+                .speech_synthesize(&text, &voice, speed, &format)
+                .await;
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => {
@@ -412,13 +466,27 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
 
 async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
     match cmd {
-        VideoCommand::Generate { prompt, duration, resolution, out: _ } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::VideoGenerate, "Generating video...", output) else {
+        VideoCommand::Generate {
+            prompt,
+            duration,
+            resolution,
+            out: _,
+        } => {
+            let Some((provider, spinner)) = prepare_provider(
+                config,
+                Capability::VideoGenerate,
+                "Generating video...",
+                output,
+            ) else {
                 return;
             };
 
-            let result = provider.video_generate(&prompt, duration, &resolution).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            let result = provider
+                .video_generate(&prompt, duration, &resolution)
+                .await;
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => {
@@ -436,14 +504,28 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
 
 async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
     match cmd {
-        MusicCommand::Generate { prompt, lyrics, instrumental, out } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::MusicGenerate, "Generating music...", output) else {
+        MusicCommand::Generate {
+            prompt,
+            lyrics,
+            instrumental,
+            out,
+        } => {
+            let Some((provider, spinner)) = prepare_provider(
+                config,
+                Capability::MusicGenerate,
+                "Generating music...",
+                output,
+            ) else {
                 return;
             };
 
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-            let result = provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            let result = provider
+                .music_generate(&prompt, lyrics.as_deref(), instrumental)
+                .await;
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => {
@@ -462,17 +544,24 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
 async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
     match cmd {
         SearchCommand::Query { query, count } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::Search, "Searching...", output) else {
+            let Some((provider, spinner)) =
+                prepare_provider(config, Capability::Search, "Searching...", output)
+            else {
                 return;
             };
 
             let result = provider.search(&query, count).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => {
                     for result in resp.results {
-                        output.result(&format!("{}\n  {}\n  {}\n", result.title, result.url, result.snippet));
+                        output.result(&format!(
+                            "{}\n  {}\n  {}\n",
+                            result.title, result.url, result.snippet
+                        ));
                     }
                 }
                 Err(e) => output.error(&format!("{e}"), 1),
@@ -484,12 +573,16 @@ async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
 async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
     match cmd {
         VisionCommand::Analyze { file, prompt } => {
-            let Some((provider, spinner)) = prepare_provider(config, Capability::Vision, "Analyzing image...", output) else {
+            let Some((provider, spinner)) =
+                prepare_provider(config, Capability::Vision, "Analyzing image...", output)
+            else {
                 return;
             };
 
             let result = provider.vision(&file, prompt.as_deref()).await;
-            if let Some(sp) = spinner { sp.finish_and_clear(); }
+            if let Some(sp) = spinner {
+                sp.finish_and_clear();
+            }
 
             match result {
                 Ok(resp) => {
@@ -562,17 +655,33 @@ async fn handle_doctor(args: cli::DoctorArgs, config: &Config, output: &Output) 
 
     for (i, result) in results.iter().enumerate() {
         let symbol = match result.status.as_str() {
-            "pass" => { pass_count += 1; "✓" }
-            "warn" => { warn_count += 1; "⚠" }
-            "fail" => { fail_count += 1; "✗" }
+            "pass" => {
+                pass_count += 1;
+                "✓"
+            }
+            "warn" => {
+                warn_count += 1;
+                "⚠"
+            }
+            "fail" => {
+                fail_count += 1;
+                "✗"
+            }
             _ => "?",
         };
         let details = result.details.as_deref().unwrap_or("");
-        output.result(&format!("{} {}. {}  {}", symbol, i + 1, result.description, details));
+        output.result(&format!(
+            "{} {}. {}  {}",
+            symbol,
+            i + 1,
+            result.description,
+            details
+        ));
     }
 
     output.result("");
-    output.result(&format!("{} passed, {} warning{}, {} failed",
+    output.result(&format!(
+        "{} passed, {} warning{}, {} failed",
         pass_count,
         warn_count,
         if warn_count != 1 { "s" } else { "" },
@@ -585,11 +694,16 @@ fn check_config_file(_config: &Config) -> DoctorCheckResult {
         Some(path) => {
             let exists = path.exists();
             let size_str = if exists {
-                std::fs::metadata(&path).map(|m| {
-                    let size = m.len();
-                    if size < 1024 { format!("{} B", size) }
-                    else { format!("{:.1} KB", size as f64 / 1024.0) }
-                }).unwrap_or_else(|_| "unknown".to_string())
+                std::fs::metadata(&path)
+                    .map(|m| {
+                        let size = m.len();
+                        if size < 1024 {
+                            format!("{} B", size)
+                        } else {
+                            format!("{:.1} KB", size as f64 / 1024.0)
+                        }
+                    })
+                    .unwrap_or_else(|_| "unknown".to_string())
             } else {
                 "not found".to_string()
             };
@@ -630,16 +744,20 @@ fn check_provider_setup(config: &Config) -> DoctorCheckResult {
         };
     }
 
-    let names: Vec<&str> = providers.iter().map(|p| match p {
-        ConfigProvider::StepFun => "StepFun",
-        ConfigProvider::MiniMax => "MiniMax",
-    }).collect();
+    let names: Vec<&str> = providers
+        .iter()
+        .map(|p| match p {
+            ConfigProvider::StepFun => "StepFun",
+            ConfigProvider::MiniMax => "MiniMax",
+        })
+        .collect();
 
     DoctorCheckResult {
         name: "provider-setup".into(),
         description: "Provider setup".into(),
         status: "pass".into(),
-        details: Some(format!("{} provider{} configured ({})",
+        details: Some(format!(
+            "{} provider{} configured ({})",
             providers.len(),
             if providers.len() != 1 { "s" } else { "" },
             names.join(", ")
@@ -653,14 +771,34 @@ fn check_api_keys(config: &Config) -> DoctorCheckResult {
     let mut some_have_keys = false;
 
     if config.stepfun.is_some() {
-        let has_key = config.stepfun.as_ref().is_some_and(|s| !s.api_key.is_empty());
-        parts.push(format!("StepFun: {} set", if has_key { "✓" } else { "✗ missing" }));
-        if has_key { some_have_keys = true; } else { all_have_keys = false; }
+        let has_key = config
+            .stepfun
+            .as_ref()
+            .is_some_and(|s| !s.api_key.is_empty());
+        parts.push(format!(
+            "StepFun: {} set",
+            if has_key { "✓" } else { "✗ missing" }
+        ));
+        if has_key {
+            some_have_keys = true;
+        } else {
+            all_have_keys = false;
+        }
     }
     if config.minimax.is_some() {
-        let has_key = config.minimax.as_ref().is_some_and(|m| !m.api_key.is_empty());
-        parts.push(format!("MiniMax: {} set", if has_key { "✓" } else { "✗ missing" }));
-        if has_key { some_have_keys = true; } else { all_have_keys = false; }
+        let has_key = config
+            .minimax
+            .as_ref()
+            .is_some_and(|m| !m.api_key.is_empty());
+        parts.push(format!(
+            "MiniMax: {} set",
+            if has_key { "✓" } else { "✗ missing" }
+        ));
+        if has_key {
+            some_have_keys = true;
+        } else {
+            all_have_keys = false;
+        }
     }
 
     let status = if all_have_keys {
@@ -692,7 +830,10 @@ fn check_default_model(config: &Config) -> DoctorCheckResult {
             name: "default-model".into(),
             description: "Default model".into(),
             status: "warn".into(),
-            details: Some(format!("No model set for default provider ({})", config.default_provider)),
+            details: Some(format!(
+                "No model set for default provider ({})",
+                config.default_provider
+            )),
         },
     }
 }
@@ -797,7 +938,9 @@ fn check_model_validity(config: &Config) -> DoctorCheckResult {
     }
 
     let mut issues = Vec::new();
-    let capabilities = ["chat", "image", "speech", "video", "music", "vision", "search"];
+    let capabilities = [
+        "chat", "image", "speech", "video", "music", "vision", "search",
+    ];
 
     for provider in &providers {
         for cap in &capabilities {
@@ -833,97 +976,119 @@ fn handle_providers(cmd: ProvidersCommand, config: &mut Config, output: &Output)
         ProvidersCommand::List => {
             let providers = config.configured_providers();
             if providers.is_empty() {
-                output.result("No providers configured. Use `vox provider add <name> <api_key>` to add one.");
+                output.result(
+                    "No providers configured. Use `vox provider add <name> <api_key>` to add one.",
+                );
                 return;
             }
             output.result("Configured providers:");
             for p in &providers {
                 let (name, api_key_masked) = match p {
                     ConfigProvider::StepFun => {
-                        let masked = config.stepfun.as_ref()
+                        let masked = config
+                            .stepfun
+                            .as_ref()
                             .map(|s| {
-                                if s.api_key.is_empty() { "(not set)".to_string() }
-                                else { format!("{}***", &s.api_key[..4.min(s.api_key.len())]) }
+                                if s.api_key.is_empty() {
+                                    "(not set)".to_string()
+                                } else {
+                                    format!("{}***", &s.api_key[..4.min(s.api_key.len())])
+                                }
                             })
                             .unwrap_or_else(|| "(not configured)".to_string());
                         ("StepFun", masked)
                     }
                     ConfigProvider::MiniMax => {
-                        let masked = config.minimax.as_ref()
+                        let masked = config
+                            .minimax
+                            .as_ref()
                             .map(|m| {
-                                if m.api_key.is_empty() { "(not set)".to_string() }
-                                else { format!("{}***", &m.api_key[..4.min(m.api_key.len())]) }
+                                if m.api_key.is_empty() {
+                                    "(not set)".to_string()
+                                } else {
+                                    format!("{}***", &m.api_key[..4.min(m.api_key.len())])
+                                }
                             })
                             .unwrap_or_else(|| "(not configured)".to_string());
                         ("MiniMax", masked)
                     }
                 };
-                let is_default = if p == &config.default_provider { " (default)" } else { "" };
+                let is_default = if p == &config.default_provider {
+                    " (default)"
+                } else {
+                    ""
+                };
                 output.result(&format!("  {name}: {api_key_masked}{is_default}"));
             }
         }
-        ProvidersCommand::Add { provider, api_key, group_id } => {
-            match provider.to_lowercase().as_str() {
-                "stepfun" => {
-                    let sf = config.stepfun.get_or_insert_with(|| config::StepFunConfig {
-                        api_key: String::new(),
-                        base_url: None,
-                        model: None,
-                        models: config::ProviderModels::default(),
-                    });
-                    sf.api_key = api_key;
-                    if let Err(e) = config.save() {
-                        output.error(&format!("Failed to save config: {e}"), 1);
-                    } else {
-                        output.result("StepFun provider added successfully.");
-                    }
-                }
-                "minimax" => {
-                    let mm = config.minimax.get_or_insert_with(|| config::MiniMaxConfig {
-                        api_key: String::new(),
-                        group_id: None,
-                        base_url: None,
-                        model: None,
-                        models: config::ProviderModels::default(),
-                    });
-                    mm.api_key = api_key;
-                    if let Some(gid) = group_id {
-                        mm.group_id = Some(gid);
-                    }
-                    if let Err(e) = config.save() {
-                        output.error(&format!("Failed to save config: {e}"), 1);
-                    } else {
-                        output.result("MiniMax provider added successfully.");
-                    }
-                }
-                other => {
-                    output.error(&format!("Unknown provider: {other}. Use 'stepfun' or 'minimax'."), 1);
+        ProvidersCommand::Add {
+            provider,
+            api_key,
+            group_id,
+        } => match provider.to_lowercase().as_str() {
+            "stepfun" => {
+                let sf = config.stepfun.get_or_insert_with(|| config::StepFunConfig {
+                    api_key: String::new(),
+                    base_url: None,
+                    model: None,
+                    models: config::ProviderModels::default(),
+                });
+                sf.api_key = api_key;
+                if let Err(e) = config.save() {
+                    output.error(&format!("Failed to save config: {e}"), 1);
+                } else {
+                    output.result("StepFun provider added successfully.");
                 }
             }
-        }
-        ProvidersCommand::Remove { provider } => {
-            match provider.to_lowercase().as_str() {
-                "stepfun" => {
-                    config.stepfun = None;
-                    if let Err(e) = config.save() {
-                        output.error(&format!("Failed to save config: {e}"), 1);
-                    } else {
-                        output.result("StepFun provider removed.");
-                    }
+            "minimax" => {
+                let mm = config.minimax.get_or_insert_with(|| config::MiniMaxConfig {
+                    api_key: String::new(),
+                    group_id: None,
+                    base_url: None,
+                    model: None,
+                    models: config::ProviderModels::default(),
+                });
+                mm.api_key = api_key;
+                if let Some(gid) = group_id {
+                    mm.group_id = Some(gid);
                 }
-                "minimax" => {
-                    config.minimax = None;
-                    if let Err(e) = config.save() {
-                        output.error(&format!("Failed to save config: {e}"), 1);
-                    } else {
-                        output.result("MiniMax provider removed.");
-                    }
-                }
-                other => {
-                    output.error(&format!("Unknown provider: {other}. Use 'stepfun' or 'minimax'."), 1);
+                if let Err(e) = config.save() {
+                    output.error(&format!("Failed to save config: {e}"), 1);
+                } else {
+                    output.result("MiniMax provider added successfully.");
                 }
             }
-        }
+            other => {
+                output.error(
+                    &format!("Unknown provider: {other}. Use 'stepfun' or 'minimax'."),
+                    1,
+                );
+            }
+        },
+        ProvidersCommand::Remove { provider } => match provider.to_lowercase().as_str() {
+            "stepfun" => {
+                config.stepfun = None;
+                if let Err(e) = config.save() {
+                    output.error(&format!("Failed to save config: {e}"), 1);
+                } else {
+                    output.result("StepFun provider removed.");
+                }
+            }
+            "minimax" => {
+                config.minimax = None;
+                if let Err(e) = config.save() {
+                    output.error(&format!("Failed to save config: {e}"), 1);
+                } else {
+                    output.result("MiniMax provider removed.");
+                }
+            }
+            other => {
+                output.error(
+                    &format!("Unknown provider: {other}. Use 'stepfun' or 'minimax'."),
+                    1,
+                );
+            }
+        },
         ProvidersCommand::Status { provider } => {
             let target = match provider {
                 Some(name) => match name.to_lowercase().as_str() {
@@ -962,7 +1127,15 @@ fn handle_models(cmd: ModelsCommand, config: &mut Config, output: &Output) {
         ModelsCommand::List { capability } => {
             let capabilities = match capability.as_deref() {
                 Some(c) => vec![c.to_string()],
-                None => vec!["chat".into(), "image".into(), "speech".into(), "video".into(), "music".into(), "vision".into(), "search".into()],
+                None => vec![
+                    "chat".into(),
+                    "image".into(),
+                    "speech".into(),
+                    "video".into(),
+                    "music".into(),
+                    "vision".into(),
+                    "search".into(),
+                ],
             };
 
             for cap in &capabilities {
@@ -983,7 +1156,13 @@ fn handle_models(cmd: ModelsCommand, config: &mut Config, output: &Output) {
             // Validate the model is known
             let known = models::get_available_models(&config.default_provider, &capability);
             if !known.is_empty() && !known.contains(&model) {
-                output.error(&format!("Unknown model '{model}' for capability '{capability}'. Known models: {}", known.join(", ")), 1);
+                output.error(
+                    &format!(
+                        "Unknown model '{model}' for capability '{capability}'. Known models: {}",
+                        known.join(", ")
+                    ),
+                    1,
+                );
                 return;
             }
 
@@ -1201,7 +1380,9 @@ fn set_config_key(config: &mut Config, key: &str, value: &str) -> Result<(), Str
         }
         _ => return Err(format!("Unknown config key: {key}")),
     }
-    config.save().map_err(|e| format!("Failed to save config: {e}"))
+    config
+        .save()
+        .map_err(|e| format!("Failed to save config: {e}"))
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1215,7 +1396,10 @@ fn prepare_provider(
     capability: Capability,
     spinner_msg: &str,
     output: &Output,
-) -> Option<(Box<dyn providers::AIProvider>, Option<indicatif::ProgressBar>)> {
+) -> Option<(
+    Box<dyn providers::AIProvider>,
+    Option<indicatif::ProgressBar>,
+)> {
     let provider = match create_provider(config) {
         Ok(p) => p,
         Err(e) => {
@@ -1265,7 +1449,7 @@ use std::time::{Duration, Instant};
 use crossterm::{
     event::{self, Event, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
 #[cfg(feature = "tui")]
@@ -1281,7 +1465,9 @@ use crate::app::AppState;
 use crate::input::InputMode;
 
 #[cfg(feature = "tui")]
-use crate::ui::{AudioView, ChatView, ConfigView, ImageView, Layout, View, AppTheme, AppLayout, compute_layout};
+use crate::ui::{
+    AppLayout, AppTheme, AudioView, ChatView, ConfigView, ImageView, Layout, View, compute_layout,
+};
 
 #[cfg(feature = "tui")]
 async fn run_tui() -> io::Result<()> {
@@ -1329,7 +1515,11 @@ async fn run_app(
                 }
             }
 
-            let AppLayout { sidebar, main, status } = compute_layout(area);
+            let AppLayout {
+                sidebar,
+                main,
+                status,
+            } = compute_layout(area);
 
             Layout::render_sidebar(f, sidebar, app.current_view, &theme);
 
@@ -1376,8 +1566,18 @@ async fn run_app(
                 ConfigProvider::MiniMax => "MiniMax",
             };
             let model_name = match app.config.default_provider {
-                ConfigProvider::StepFun => app.config.stepfun.as_ref().and_then(|s| s.model.as_deref()).unwrap_or("default"),
-                ConfigProvider::MiniMax => app.config.minimax.as_ref().and_then(|m| m.model.as_deref()).unwrap_or("default"),
+                ConfigProvider::StepFun => app
+                    .config
+                    .stepfun
+                    .as_ref()
+                    .and_then(|s| s.model.as_deref())
+                    .unwrap_or("default"),
+                ConfigProvider::MiniMax => app
+                    .config
+                    .minimax
+                    .as_ref()
+                    .and_then(|m| m.model.as_deref())
+                    .unwrap_or("default"),
             };
             let position_label = format!("{provider_name} • {model_name}");
             let help_label = match app.current_view {

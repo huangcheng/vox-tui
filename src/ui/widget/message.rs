@@ -1,9 +1,12 @@
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Modifier, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget, Wrap},
-    Frame,
+    widgets::{
+        Block, BorderType, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        Widget, Wrap,
+    },
 };
 
 use crate::ui::AppTheme;
@@ -160,8 +163,7 @@ impl<'a> MessageList<'a> {
         let visible = content_area.height as usize;
         let total = total_height as usize;
         if total > visible {
-                let mut state = ScrollbarState::new(total)
-                .position(scroll as usize);
+            let mut state = ScrollbarState::new(total).position(scroll as usize);
             let scrollbar = Scrollbar::default()
                 .orientation(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(None)
@@ -176,11 +178,16 @@ impl<'a> MessageList<'a> {
         let text = Text::from(vec![
             Line::from(""),
             Line::from(""),
-            Line::from(Span::styled("◆", theme.style(theme.accent).add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "◆",
+                theme.style(theme.accent).add_modifier(Modifier::BOLD),
+            )),
             Line::from(""),
             Line::from(Span::styled(
                 "No messages yet",
-                theme.style(theme.text_secondary).add_modifier(Modifier::BOLD),
+                theme
+                    .style(theme.text_secondary)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
                 "Start typing below to begin chatting.",
@@ -188,8 +195,8 @@ impl<'a> MessageList<'a> {
             )),
             Line::from(Span::styled(
                 "Press Tab to switch views · q to quit",
-                theme.style(theme.text_muted).add_modifier(Modifier::DIM)),
-            ),
+                theme.style(theme.text_muted).add_modifier(Modifier::DIM),
+            )),
         ]);
         Paragraph::new(text)
             .alignment(Alignment::Center)
@@ -208,7 +215,9 @@ impl<'a> MessageList<'a> {
         };
         // header + wrapped content + border top/bottom + padding top/bottom + gap
         let content_lines = Self::wrapped_line_count(&content, bubble_width);
-        1u16.saturating_add(content_lines).saturating_add(4).saturating_add(1)
+        1u16.saturating_add(content_lines)
+            .saturating_add(4)
+            .saturating_add(1)
     }
 
     fn wrapped_line_count(text: &str, width: u16) -> u16 {
@@ -235,14 +244,12 @@ impl<'a> MessageList<'a> {
             msg.content.clone()
         };
 
-        let mut text = Text::from(vec![Line::from(vec![
-            Span::styled(
-                header,
-                theme
-                    .style(msg.role_color(theme))
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])]);
+        let mut text = Text::from(vec![Line::from(vec![Span::styled(
+            header,
+            theme
+                .style(msg.role_color(theme))
+                .add_modifier(Modifier::BOLD),
+        )])]);
         for line in content.lines() {
             text.lines.push(Line::from(Span::styled(
                 line.to_string(),
@@ -252,7 +259,13 @@ impl<'a> MessageList<'a> {
         text
     }
 
-    fn render_message_bubble(&self, f: &mut Frame, area: Rect, msg: &ChatMessage, theme: &AppTheme) {
+    fn render_message_bubble(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        msg: &ChatMessage,
+        theme: &AppTheme,
+    ) {
         // Margin: 2 chars on each side
         let bubble_outer = Rect {
             x: area.x + 2,
@@ -304,16 +317,14 @@ impl<'a> MessageList<'a> {
 
         // Render text inside the bubble with border
         let text = self.message_text(msg, theme);
-        let bubble = Paragraph::new(text)
-            .wrap(Wrap { trim: true })
-            .block(
-                Block::default()
-                    .border_type(BorderType::Plain)
-                    .borders(ratatui::widgets::Borders::ALL)
-                    .border_style(theme.style(theme.border))
-                    .padding(Padding::uniform(1))
-                    .bg(bg),
-            );
+        let bubble = Paragraph::new(text).wrap(Wrap { trim: true }).block(
+            Block::default()
+                .border_type(BorderType::Plain)
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(theme.style(theme.border))
+                .padding(Padding::uniform(1))
+                .bg(bg),
+        );
 
         bubble.render(content_area, f.buffer_mut());
     }
