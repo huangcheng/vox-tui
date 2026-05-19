@@ -12,6 +12,27 @@ description: >
 
 vox is a multi-provider AI multimedia CLI. It gives you a single interface to StepFun and MiniMax for 7 capabilities: text chat, image generation, speech synthesis, video generation, music generation, web search, and vision/image understanding.
 
+## Installation
+
+```bash
+# From crates.io (recommended)
+cargo install vox-ai
+
+# Or build from source
+git clone https://github.com/huangcheng/vox.git
+cd vox
+cargo build --release
+# Binary at target/release/vox
+```
+
+The crate name is `vox-ai` but the installed binary is `vox`.
+
+After installing, verify it works:
+
+```bash
+vox --help
+```
+
 ## First-Time Setup
 
 Before any AI task, the user needs at least one provider configured. Check with `vox doctor`:
