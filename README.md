@@ -1,31 +1,60 @@
-# vox-tui
+# vox-tui — Multi-Provider AI Multimedia CLI
 
-A multi-provider AI multimedia TUI (Text User Interface) built in Rust with Ratatui.
+A Rust CLI that provides a unified interface to multiple AI providers (StepFun, MiniMax) for text, image, speech, video, music, search, and vision capabilities.
 
 ## Features
 
-- **Multi-Provider Support**: Switch between StepFun and MiniMax AI providers
-- **Chat Interface**: Full-duplex chat with streaming responses
-- **Image Generation**: Text-to-image capabilities
-- **Audio/TTS**: Text-to-speech synthesis
-- **Configuration Management**: TOML-based config with validation
-- **Cross-Platform**: Works on macOS, Linux, and Windows
+- **Multi-provider**: StepFun and MiniMax with shared OpenAI-compatible base adapter
+- **7 capabilities**: text chat/completion, image generation, speech synthesis, video generation, music generation, web search, vision/image understanding
+- **Interactive REPL**: `vox text repl` for multi-turn chat with history
+- **Provider management**: `vox provider add/remove/list/status`
+- **Model management**: `vox models list/set` per capability per provider
+- **Diagnostics**: `vox doctor` to check config, connectivity, and auth
+- **Auto-retry**: exponential backoff (3 retries) on transient failures
+- **Config migration**: auto-upgrades old model names and API URLs
+- **JSON output**: `--format json` for scripting
+- **Shell completion**: `vox completion bash|zsh|fish|elvish`
 
-## Installation
+## Install
 
 ```bash
-# From source
-git clone https://github.com/yourusername/vox-tui.git
+git clone https://github.com/huangcheng/vox-tui.git
 cd vox-tui
-cargo install --path .
+cargo build --release
+# Binary at target/release/vox
+```
 
-# Or from crates.io (when published)
-cargo install vox-tui
+## Quick Start
+
+```bash
+# Add your API key
+vox provider add stepfun
+vox provider add minimax
+
+# Chat
+vox text chat "Explain Rust ownership"
+vox --provider minimax text chat "Hello"
+
+# Generate image
+vox image generate "A cat in space" --output cat.png
+
+# Speech synthesis
+vox speech generate --text "Hello world" --voice cixingnansheng --out hello.mp3
+
+# Web search
+vox search query "Rust programming language"
+
+# Vision
+vox vision analyze photo.jpg --prompt "What's in this image?"
 ```
 
 ## Configuration
 
-Create a configuration file at `~/.config/vox/config.toml` (macOS/Linux) or `%APPDATA%/vox/config.toml` (Windows):
+Config file location:
+- macOS/Linux: `~/.config/vox/config.toml`
+- Windows: `%APPDATA%\vox\config.toml`
+
+Example (`config.example.toml`):
 
 ```toml
 provider = "stepfun"
@@ -37,66 +66,74 @@ api_key = "sk-your-api-key-here"
 api_key = "your-minimax-api-key-here"
 ```
 
-See `config.example.toml` for all available options.
+### Provider Details
 
-## Usage
+| Provider | Base URL | Chat Model | Speech Model |
+|----------|----------|------------|--------------|
+| StepFun | `https://api.stepfun.com/v1` | step-1-8k | stepaudio-2.5-tts |
+| MiniMax | `https://api.minimaxi.com/v1` | MiniMax-M2.7 | speech-2.8-hd |
 
-```bash
-vox
+### Model Override
+
+```toml
+[minimax]
+api_key = "..."
+model = "MiniMax-M2.7-highspeed"  # Override default chat model
 ```
 
-### Keyboard Shortcuts
+Or per-capability:
 
-| Key | Action |
-|-----|--------|
-| `1-4` | Switch to view (Chat/Image/Audio/Config) |
-| `Tab` / `Shift+Tab` | Next/previous view |
-| `Enter` | Focus input / Send message |
-| `Escape` | Clear input / Cancel streaming |
-| `q` / `Ctrl+C` | Quit |
-| `↑` / `↓` | Scroll messages |
+```bash
+vox models set speech speech-2.8-hd
+vox models list --provider stepfun
+```
+
+## CLI Reference
+
+```
+vox [OPTIONS] [COMMAND]
+
+Commands:
+  text        Text generation and chat
+  image       Image generation
+  speech      Speech synthesis (TTS)
+  video       Video generation
+  music       Music generation
+  search      Web search
+  vision      Image understanding
+  doctor      Run diagnostics
+  provider    Manage providers
+  models      Manage models
+  config      Manage configuration
+  completion  Shell completion script
+
+Options:
+  --provider <PROVIDER>      Provider (minimax, stepfun)
+  --model <MODEL>            Model name override
+  --format <FORMAT>          Output format (text, json) [default: text]
+  --output-dir <DIR>         Default output directory
+  --config <PATH>            Config file path
+  --quiet                    Suppress progress output
+  --verbose                  Debug output
+```
 
 ## Architecture
 
 ```
 src/
-├── main.rs          # App state, event loop, rendering
-├── config.rs        # TOML config with validation
-├── input.rs         # Keyboard handling, TextInputState
-├── stepfun.rs       # StepFun HTTP client + SSE streaming
-├── minimax.rs       # MiniMax HTTP client
-├── provider.rs      # Provider trait + factory
-└── ui/
-    ├── mod.rs       # UI module exports
-    ├── layout.rs    # Sidebar + main + status bar layout
-    ├── view/        # View components
-    │   ├── chat.rs  # Chat view with message list
-    │   ├── config.rs # Config display view
-    │   ├── image.rs # Image generation view
-    │   └── audio.rs # TTS/Audio view
-    └── widget/      # Reusable widgets
-        ├── button.rs
-        ├── input.rs
-        ├── message.rs
-        ├── spinner.rs
-        └── status_bar.rs
+  providers/
+    mod.rs       AIProvider trait, RetryProvider, factory
+    openai.rs    Shared OpenAI-compatible HTTP client
+    stepfun.rs   StepFun adapter (~200 LOC)
+    minimax.rs   MiniMax adapter (~230 LOC)
+  config.rs      Config, migration, provider/model management
+  cli.rs         Clap CLI definitions
+  app.rs         Command dispatch
+  capabilities.rs  Per-provider capability flags
+  models.rs      Static model registry
 ```
 
-## Development
-
-```bash
-# Build
-cargo build
-
-# Run tests
-cargo test
-
-# Run in debug mode
-cargo run
-
-# Release build
-cargo build --release
-```
+The `AIProvider` trait defines capabilities (`chat`, `image_generate`, `speech_synthesize`, etc.). The shared `OpenAIClient` provides default implementations for OpenAI-compatible endpoints — providers only override unique APIs.
 
 ## License
 
