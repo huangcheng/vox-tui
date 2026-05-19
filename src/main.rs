@@ -388,12 +388,14 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
 
             match result {
                 Ok(resp) => {
-                    if let Some(path) = out_path {
-                        for (i, url) in resp.urls.iter().enumerate() {
-                            let file_path = if resp.urls.len() == 1 {
+                    let total = resp.urls.len();
+                    for (i, url) in resp.urls.iter().enumerate() {
+                        let file_path = if let Some(ref path) = out_path {
+                            // Explicit path — handle multi-image naming
+                            if total == 1 {
                                 path.clone()
                             } else {
-                                let p = std::path::Path::new(&path);
+                                let p = std::path::Path::new(path);
                                 let parent = p.parent();
                                 let stem =
                                     p.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
@@ -405,33 +407,14 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
                                     }
                                     _ => filename,
                                 }
-                            };
-                            if let Err(e) = download_file(url, &file_path).await {
-                                output.error(&format!("Failed to download {url}: {e}"), 1);
-                            } else {
-                                output.status(&format!("Saved to {file_path}"));
                             }
-                        }
-                    } else {
-                        // No explicit output path — download to current directory
-                        for (i, url) in resp.urls.iter().enumerate() {
-                            let filename = if resp.urls.len() == 1 {
-                                format!(
-                                    "vox_{}.png",
-                                    chrono::Local::now().format("%Y%m%d_%H%M%S")
-                                )
-                            } else {
-                                format!(
-                                    "vox_{}_{}.png",
-                                    chrono::Local::now().format("%Y%m%d_%H%M%S"),
-                                    i
-                                )
-                            };
-                            if let Err(e) = download_file(url, &filename).await {
-                                output.error(&format!("Failed to download {url}: {e}"), 1);
-                            } else {
-                                output.status(&format!("Saved to {filename}"));
-                            }
+                        } else {
+                            resolve_output_path(None, config, "png", Some(i), total)
+                        };
+                        if let Err(e) = download_file(url, &file_path).await {
+                            output.error(&format!("Failed to download {url}: {e}"), 1);
+                        } else {
+                            output.status(&format!("Saved to {file_path}"));
                         }
                     }
                 }
@@ -459,7 +442,15 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
                 return;
             };
 
-            let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
+            let audio_ext = match format.as_str() {
+                "wav" => "wav",
+                "flac" => "flac",
+                "pcm" => "pcm",
+                "opus" => "opus",
+                _ => "mp3",
+            };
+            let output_path =
+                resolve_output_path(out.as_deref(), config, audio_ext, None, 1);
             let result = provider
                 .speech_synthesize(&text, &voice, speed, &format)
                 .await;
@@ -487,7 +478,7 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
             prompt,
             duration,
             resolution,
-            out: _,
+            out,
         } => {
             let Some((provider, spinner)) = prepare_provider(
                 config,
@@ -509,8 +500,16 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
                 Ok(resp) => {
                     output.result(&format!("Task ID: {}", resp.task_id));
                     output.result(&format!("Status: {}", resp.status));
-                    if let Some(url) = resp.video_url {
-                        output.result(&format!("Video URL: {url}"));
+                    if let Some(url) = &resp.video_url {
+                        let file_path =
+                            resolve_output_path(out.as_deref(), config, "mp4", None, 1);
+                        match download_file(url, &file_path).await {
+                            Ok(()) => output.status(&format!("Saved to {file_path}")),
+                            Err(e) => {
+                                output.error(&format!("Failed to download video: {e}"), 1);
+                                output.result(&format!("Video URL: {url}"));
+                            }
+                        }
                     }
                 }
                 Err(e) => output.error(&format!("{e}"), 1),
@@ -536,7 +535,8 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
                 return;
             };
 
-            let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
+            let output_path =
+                resolve_output_path(out.as_deref(), config, "mp3", None, 1);
             let result = provider
                 .music_generate(&prompt, lyrics.as_deref(), instrumental)
                 .await;
@@ -1455,6 +1455,37 @@ async fn download_file(url: &str, path: &str) -> Result<(), Box<dyn std::error::
     let bytes = reqwest::get(url).await?.bytes().await?;
     tokio::fs::write(path, bytes).await?;
     Ok(())
+}
+
+/// Resolve the final output path for a generated file.
+///
+/// Priority:
+/// 1. Explicit user-provided path (via `-o` / `--out`)
+/// 2. `vox_<timestamp>.<ext>` inside `--output-dir` (or cwd if not set)
+fn resolve_output_path(
+    explicit: Option<&str>,
+    config: &Config,
+    extension: &str,
+    index: Option<usize>,
+    total: usize,
+) -> String {
+    if let Some(path) = explicit {
+        return path.to_string();
+    }
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let filename = match (index, total) {
+        (Some(i), t) if t > 1 => format!("vox_{timestamp}_{i}.{extension}"),
+        _ => format!("vox_{timestamp}.{extension}"),
+    };
+
+    match &config.output_dir {
+        Some(dir) => {
+            let path = std::path::Path::new(dir).join(&filename);
+            path.to_string_lossy().into_owned()
+        }
+        None => filename,
+    }
 }
 
 // ── TUI mode (only compiled with `--features tui`) ──────────────────────
