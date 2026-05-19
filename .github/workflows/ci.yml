@@ -17,6 +17,13 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --check
 
       - name: cargo check (default — CLI only)
         run: cargo check
@@ -35,3 +42,6 @@ jobs:
 
       - name: cargo clippy (with TUI feature)
         run: cargo clippy --features tui -- -D warnings
+
+      - name: cargo doc
+        run: cargo doc --no-deps

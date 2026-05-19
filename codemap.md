@@ -37,15 +37,15 @@ A multi-provider AI multimedia CLI and TUI application written in Rust. Provides
 - `ConfigEditor` + `ConfigField`: TUI navigable config editing state machine
 - API key masking in Debug output
 
-### Provider Layer (`src/provider.rs`)
+### Provider Layer (`src/providers/mod.rs`)
 - `AIProvider` async trait: chat, image, speech, video, music, search, vision
 - `StepFunProvider` and `MiniMaxProvider` implementations
 - `RetryProvider` decorator with exponential backoff (3 retries, transient 5xx detection)
 - Factory pattern: `create_provider()` returns `Box<dyn AIProvider>`
 
 ### API Clients
-- `src/minimax.rs`: MiniMax API client (chat, image, speech, video, music, search, vision)
-- `src/stepfun.rs`: StepFun API client (chat, image, speech, search, vision; no video/music)
+- `src/providers/minimax.rs`: MiniMax API client (chat, image, speech, video, music, search, vision)
+- `src/providers/stepfun.rs`: StepFun API client (chat, image, speech, search, vision; no video/music)
 
 ### TUI Layer (`src/app.rs`, `src/input.rs`, `src/ui/`)
 - `AppState`: Central state with async channel (`tokio::sync::mpsc`)

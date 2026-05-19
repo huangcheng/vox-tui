@@ -28,12 +28,12 @@ cargo build --release
 
 ```bash
 # Add your API key
-vox provider add stepfun
-vox provider add minimax
+vox provider add stepfun YOUR_API_KEY
+vox provider add minimax YOUR_API_KEY
 
 # Chat
-vox text chat "Explain Rust ownership"
-vox --provider minimax text chat "Hello"
+vox text chat --message "Explain Rust ownership"
+vox --provider minimax text chat --message "Hello"
 
 # Generate image
 vox image generate "A cat in space" --output cat.png
@@ -46,6 +46,9 @@ vox search query "Rust programming language"
 
 # Vision
 vox vision analyze photo.jpg --prompt "What's in this image?"
+
+# Launch TUI mode
+vox --tui
 ```
 
 ## Configuration

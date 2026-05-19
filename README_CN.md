@@ -28,12 +28,12 @@ cargo build --release
 
 ```bash
 # 配置 API Key
-vox provider add stepfun
-vox provider add minimax
+vox provider add stepfun YOUR_API_KEY
+vox provider add minimax YOUR_API_KEY
 
 # 对话
-vox text chat "解释 Rust 所有权机制"
-vox --provider minimax text chat "你好"
+vox text chat --message "解释 Rust 所有权机制"
+vox --provider minimax text chat --message "你好"
 
 # 生成图像
 vox image generate "太空中的猫" --output cat.png
@@ -46,6 +46,9 @@ vox search query "Rust 编程语言"
 
 # 视觉理解
 vox vision analyze photo.jpg --prompt "描述这张图片"
+
+# 启动 TUI 模式
+vox --tui
 ```
 
 ## 配置

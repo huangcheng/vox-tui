@@ -17,6 +17,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::{generate, Shell};
 use std::io;
 
+use crate::capabilities::Capability;
 use crate::cli::{Cli, Commands, GlobalOpts, TextCommand, ImageCommand, SpeechCommand, VideoCommand, MusicCommand, SearchCommand, VisionCommand, ProvidersCommand, ModelsCommand, ConfigCommand};
 use crate::config::{Config, Provider as ConfigProvider};
 use crate::output::{Output, OutputFormat};
@@ -37,9 +38,7 @@ async fn main() -> std::io::Result<()> {
         }
         #[cfg(not(feature = "tui"))]
         {
-            eprintln!("vox: TUI is not enabled in this build.");
-            eprintln!("Rebuild with: cargo build --features tui");
-            std::process::exit(1);
+            Err(std::io::Error::other("TUI is not enabled in this build. Rebuild with: cargo build --features tui"))
         }
     } else {
         // No subcommand and no --tui: print help
@@ -108,8 +107,7 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
         match Config::load_from(std::path::Path::new(config_path)) {
             Ok(c) => c,
             Err(e) => {
-                output.error(&format!("Failed to load config from {}: {e}", config_path), 1);
-                std::process::exit(1);
+                return Err(std::io::Error::other(format!("Failed to load config from {}: {e}", config_path)));
             }
         }
     } else {
@@ -145,8 +143,7 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
     let provider_name = match resolve_provider(&cli.global, &config) {
         Ok(p) => p,
         Err(e) => {
-            output.error(&format!("Error: {e}"), 1);
-            std::process::exit(1);
+            return Err(std::io::Error::other(format!("Error: {e}")));
         }
     };
 
@@ -179,7 +176,7 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
 
     // Exit with error code if errors occurred
     if output.has_errors() {
-        std::process::exit(output.exit_code());
+        return Err(std::io::Error::other("errors occurred"));
     }
 
     Ok(())
@@ -211,23 +208,13 @@ fn apply_global_overrides(global: &GlobalOpts, config: &mut Config) {
 // ═══════════════════════════════════════════════════════════════════
 
 async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         TextCommand::Chat { message, system } => {
             // If no message provided, enter REPL mode
             if let Some(msg) = message {
-                // Check capability
-                if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat", &config.default_provider) {
-                    output.error(&e, 1);
+                let Some((provider, spinner)) = prepare_provider(config, Capability::Chat, "Generating response...", output) else {
                     return;
-                }
+                };
 
                 let messages = if let Some(sys) = &system {
                     vec![
@@ -238,43 +225,43 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
                     vec![providers::Message::user(msg)]
                 };
 
-                // Create spinner (unless quiet mode)
-                let spinner = create_spinner("Generating response...", output);
-
                 let result = provider.chat(&messages).await;
-
-                if let Some(sp) = spinner {
-                    sp.finish_and_clear();
-                }
+                if let Some(sp) = spinner { sp.finish_and_clear(); }
 
                 match result {
                     Ok(resp) => output.result(&resp.content),
                     Err(e) => output.error(&format!("{e}"), 1),
                 }
             } else {
-                // No message — enter interactive REPL
+                // No message — enter interactive REPL (needs its own provider)
+                let provider = match create_provider(config) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        output.error(&format!("Failed to create provider: {e}"), 1);
+                        return;
+                    }
+                };
                 handle_text_repl(provider, system, output).await;
             }
         }
         TextCommand::Repl { system } => {
+            let provider = match create_provider(config) {
+                Ok(p) => p,
+                Err(e) => {
+                    output.error(&format!("Failed to create provider: {e}"), 1);
+                    return;
+                }
+            };
             handle_text_repl(provider, system, output).await;
         }
         TextCommand::Complete { prompt } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("chat", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::Chat, "Generating completion...", output) else {
                 return;
-            }
+            };
 
             let messages = vec![providers::Message::user(prompt)];
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating completion...", output);
-
             let result = provider.chat(&messages).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => output.result(&resp.content),
@@ -286,10 +273,13 @@ async fn handle_text(cmd: TextCommand, config: &Config, output: &Output) {
 
 /// Interactive chat REPL handler
 async fn handle_text_repl(provider: Box<dyn providers::AIProvider>, system: Option<String>, output: &Output) {
-    let mut rl = DefaultEditor::new().unwrap_or_else(|e| {
-        output.error(&format!("Failed to initialize REPL: {e}"), 1);
-        std::process::exit(1);
-    });
+    let mut rl = match DefaultEditor::new() {
+        Ok(rl) => rl,
+        Err(e) => {
+            output.error(&format!("Failed to initialize REPL: {e}"), 1);
+            return;
+        }
+    };
 
     let mut conversation: Vec<providers::Message> = Vec::new();
 
@@ -349,29 +339,14 @@ async fn handle_text_repl(provider: Box<dyn providers::AIProvider>, system: Opti
 }
 
 async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         ImageCommand::Generate { prompt, aspect_ratio, output: out_path, n } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("image_generate", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::ImageGenerate, "Generating image...", output) else {
                 return;
-            }
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating image...", output);
+            };
 
             let result = provider.image_generate(&prompt, n, &aspect_ratio).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => {
@@ -411,31 +386,15 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
 }
 
 async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         SpeechCommand::Generate { text, out, voice, speed, format } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("speech_synthesize", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::SpeechSynthesize, "Generating speech...", output) else {
                 return;
-            }
+            };
 
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating speech...", output);
-
             let result = provider.speech_synthesize(&text, &voice, speed, &format).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => {
@@ -452,29 +411,14 @@ async fn handle_speech(cmd: SpeechCommand, config: &Config, output: &Output) {
 }
 
 async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         VideoCommand::Generate { prompt, duration, resolution, out: _ } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("video_generate", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::VideoGenerate, "Generating video...", output) else {
                 return;
-            }
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating video...", output);
+            };
 
             let result = provider.video_generate(&prompt, duration, &resolution).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => {
@@ -491,31 +435,15 @@ async fn handle_video(cmd: VideoCommand, config: &Config, output: &Output) {
 }
 
 async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         MusicCommand::Generate { prompt, lyrics, instrumental, out } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("music_generate", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::MusicGenerate, "Generating music...", output) else {
                 return;
-            }
+            };
 
             let output_path = out.unwrap_or_else(|| "output.mp3".to_string());
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Generating music...", output);
-
             let result = provider.music_generate(&prompt, lyrics.as_deref(), instrumental).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => {
@@ -532,29 +460,14 @@ async fn handle_music(cmd: MusicCommand, config: &Config, output: &Output) {
 }
 
 async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         SearchCommand::Query { query, count } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("search", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::Search, "Searching...", output) else {
                 return;
-            }
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Searching...", output);
+            };
 
             let result = provider.search(&query, count).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => {
@@ -569,29 +482,14 @@ async fn handle_search(cmd: SearchCommand, config: &Config, output: &Output) {
 }
 
 async fn handle_vision(cmd: VisionCommand, config: &Config, output: &Output) {
-    let provider = match create_provider(config) {
-        Ok(p) => p,
-        Err(e) => {
-            output.error(&format!("Failed to create provider: {e}"), 1);
-            return;
-        }
-    };
-
     match cmd {
         VisionCommand::Analyze { file, prompt } => {
-            if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider).require("vision", &config.default_provider) {
-                output.error(&e, 1);
+            let Some((provider, spinner)) = prepare_provider(config, Capability::Vision, "Analyzing image...", output) else {
                 return;
-            }
-
-            // Create spinner (unless quiet mode)
-            let spinner = create_spinner("Analyzing image...", output);
+            };
 
             let result = provider.vision(&file, prompt.as_deref()).await;
-
-            if let Some(sp) = spinner {
-                sp.finish_and_clear();
-            }
+            if let Some(sp) = spinner { sp.finish_and_clear(); }
 
             match result {
                 Ok(resp) => {
@@ -1204,7 +1102,7 @@ fn handle_completion(shell: &str) {
         "elvish" => Shell::Elvish,
         other => {
             eprintln!("Unsupported shell: {other}. Supported: bash, zsh, fish, powershell, elvish");
-            std::process::exit(1);
+            return;
         }
     };
 
@@ -1216,14 +1114,22 @@ fn handle_completion(shell: &str) {
 // Config key helpers
 // ═══════════════════════════════════════════════════════════════════
 
+fn mask_key(key: &str) -> String {
+    if key.is_empty() {
+        "(not set)".to_string()
+    } else {
+        format!("{}***", &key[..4.min(key.len())])
+    }
+}
+
 fn parse_config_key(config: &Config, key: &str) -> Option<String> {
     let parts: Vec<&str> = key.split('.').collect();
     match parts.as_slice() {
         ["default_provider"] => Some(config.default_provider.to_string()),
-        ["stepfun", "api_key"] => config.stepfun.as_ref().map(|s| s.api_key.clone()),
+        ["stepfun", "api_key"] => config.stepfun.as_ref().map(|s| mask_key(&s.api_key)),
         ["stepfun", "base_url"] => config.stepfun.as_ref().and_then(|s| s.base_url.clone()),
         ["stepfun", "model"] => config.stepfun.as_ref().and_then(|s| s.model.clone()),
-        ["minimax", "api_key"] => config.minimax.as_ref().map(|m| m.api_key.clone()),
+        ["minimax", "api_key"] => config.minimax.as_ref().map(|m| mask_key(&m.api_key)),
         ["minimax", "group_id"] => config.minimax.as_ref().and_then(|m| m.group_id.clone()),
         ["minimax", "base_url"] => config.minimax.as_ref().and_then(|m| m.base_url.clone()),
         ["minimax", "model"] => config.minimax.as_ref().and_then(|m| m.model.clone()),
@@ -1301,6 +1207,33 @@ fn set_config_key(config: &mut Config, key: &str, value: &str) -> Result<(), Str
 // ═══════════════════════════════════════════════════════════════════
 // Utility functions
 // ═══════════════════════════════════════════════════════════════════
+
+/// Creates a provider, checks capability, creates a spinner.
+/// Returns (provider, spinner_guard) on success, or logs error and returns None.
+fn prepare_provider(
+    config: &Config,
+    capability: Capability,
+    spinner_msg: &str,
+    output: &Output,
+) -> Option<(Box<dyn providers::AIProvider>, Option<indicatif::ProgressBar>)> {
+    let provider = match create_provider(config) {
+        Ok(p) => p,
+        Err(e) => {
+            output.error(&format!("Failed to create provider: {e}"), 1);
+            return None;
+        }
+    };
+
+    if let Err(e) = capabilities::ProviderCapabilities::for_provider(&config.default_provider)
+        .require(capability, &config.default_provider)
+    {
+        output.error(&e, 1);
+        return None;
+    }
+
+    let spinner = create_spinner(spinner_msg, output);
+    Some((provider, spinner))
+}
 
 fn create_spinner(message: &str, output: &Output) -> Option<indicatif::ProgressBar> {
     if output.is_quiet() {

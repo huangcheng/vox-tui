@@ -2,6 +2,7 @@
 name = "vox"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Multi-Provider AI Multimedia CLI"
 license = "MIT"
 
@@ -61,3 +62,9 @@ rustyline = "15"
 [dev-dependencies]
 mockito = "1"
 insta = "1"
+
+[profile.release]
+strip = "symbols"
+lto = true
+codegen-units = 1
+panic = "abort"

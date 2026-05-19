@@ -84,6 +84,7 @@ impl Output {
 
     /// Returns the exit code to use when the process terminates.
     /// Returns the last error code if an error occurred, otherwise `0`.
+    #[allow(dead_code)]
     pub fn exit_code(&self) -> i32 {
         self.last_error_code.get().unwrap_or(0)
     }

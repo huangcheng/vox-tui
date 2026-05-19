@@ -1,7 +1,6 @@
 use ratatui::{
-    buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Modifier, Style, Stylize},
+    style::{Modifier, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget, Wrap},
     Frame,
@@ -317,53 +316,6 @@ impl<'a> MessageList<'a> {
             );
 
         bubble.render(content_area, f.buffer_mut());
-    }
-}
-
-// Legacy Widget impl for backward compatibility (used in tests / simple cases)
-impl Widget for MessageList<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let lines: Vec<Line> = self
-            .messages
-            .iter()
-            .flat_map(|msg| {
-                let role_span = Span::styled(
-                    format!("[{}] ", msg.role_label()),
-                    Style::default()
-                        .fg(ratatui::style::Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                );
-
-                let mut spans = vec![role_span];
-
-                if msg.is_streaming {
-                    spans.push(Span::styled(
-                        format!("{}▌", msg.content),
-                        Style::default().add_modifier(Modifier::DIM),
-                    ));
-                } else {
-                    spans.push(Span::raw(&msg.content));
-                }
-
-                let mut result = vec![Line::from(spans)];
-
-                if area.width > 40 {
-                    result.push(Line::from(""));
-                }
-
-                result
-            })
-            .collect();
-
-        if lines.is_empty() {
-            Paragraph::new("No messages yet. Start a conversation!")
-                .style(Style::default().fg(ratatui::style::Color::DarkGray))
-                .render(area, buf);
-        } else {
-            Paragraph::new(lines)
-                .scroll((self.scroll_offset, 0))
-                .render(area, buf);
-        }
     }
 }
 

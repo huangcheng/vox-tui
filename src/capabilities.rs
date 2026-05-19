@@ -1,16 +1,43 @@
 use crate::config::Provider;
 
+/// Typed capability identifiers — compile-time exhaustiveness instead of string matching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capability {
+    Chat,
+    ImageGenerate,
+    SpeechSynthesize,
+    VideoGenerate,
+    MusicGenerate,
+    Search,
+    Vision,
+}
+
+impl Capability {
+    /// Human-readable name used in error messages.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Capability::Chat => "chat",
+            Capability::ImageGenerate => "image_generate",
+            Capability::SpeechSynthesize => "speech_synthesize",
+            Capability::VideoGenerate => "video_generate",
+            Capability::MusicGenerate => "music_generate",
+            Capability::Search => "search",
+            Capability::Vision => "vision",
+        }
+    }
+}
+
 /// Static capability registry per provider.
 /// Checked BEFORE any API call to give instant feedback.
 #[derive(Debug, Clone)]
 pub struct ProviderCapabilities {
-    pub chat: bool,
-    pub image_generate: bool,
-    pub speech_synthesize: bool,
-    pub video_generate: bool,
-    pub music_generate: bool,
-    pub search: bool,
-    pub vision: bool,
+    chat: bool,
+    image_generate: bool,
+    speech_synthesize: bool,
+    video_generate: bool,
+    music_generate: bool,
+    search: bool,
+    vision: bool,
 }
 
 impl ProviderCapabilities {
@@ -22,25 +49,24 @@ impl ProviderCapabilities {
     }
 
     /// Check if a capability is supported. Returns error message if not.
-    pub fn require(&self, capability: &str, provider: &crate::config::Provider) -> Result<(), String> {
+    pub fn require(&self, capability: Capability, provider: &Provider) -> Result<(), String> {
         let provider_name = match provider {
-            crate::config::Provider::StepFun => "StepFun",
-            crate::config::Provider::MiniMax => "MiniMax",
+            Provider::StepFun => "StepFun",
+            Provider::MiniMax => "MiniMax",
         };
         let supported = match capability {
-            "chat" => self.chat,
-            "image_generate" => self.image_generate,
-            "speech_synthesize" => self.speech_synthesize,
-            "video_generate" => self.video_generate,
-            "music_generate" => self.music_generate,
-            "search" => self.search,
-            "vision" => self.vision,
-            _ => return Err(format!("Unknown capability: {capability}")),
+            Capability::Chat => self.chat,
+            Capability::ImageGenerate => self.image_generate,
+            Capability::SpeechSynthesize => self.speech_synthesize,
+            Capability::VideoGenerate => self.video_generate,
+            Capability::MusicGenerate => self.music_generate,
+            Capability::Search => self.search,
+            Capability::Vision => self.vision,
         };
         if supported {
             Ok(())
         } else {
-            Err(format!("{provider_name} does not support {capability}"))
+            Err(format!("{provider_name} does not support {}", capability.as_str()))
         }
     }
 }
@@ -89,13 +115,13 @@ mod tests {
     #[test]
     fn test_require_supported() {
         let cap = ProviderCapabilities::for_provider(&Provider::MiniMax);
-        assert!(cap.require("video_generate", &Provider::MiniMax).is_ok());
+        assert!(cap.require(Capability::VideoGenerate, &Provider::MiniMax).is_ok());
     }
 
     #[test]
     fn test_require_unsupported() {
         let cap = ProviderCapabilities::for_provider(&Provider::StepFun);
-        let result = cap.require("video_generate", &Provider::StepFun);
+        let result = cap.require(Capability::VideoGenerate, &Provider::StepFun);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("StepFun does not support video_generate"));
     }

@@ -119,18 +119,28 @@ impl AppState {
                     self.pending_view = None;
                     if let Some(url) = urls.first() {
                         let url_clone = url.clone();
+                        let tx = self.work_tx.clone();
                         tokio::spawn(async move {
                             if let Ok(resp) = reqwest::get(&url_clone).await
                                 && let Ok(bytes) = resp.bytes().await
-                                && let Some(path) = image_save_path()
-                                && std::fs::write(&path, &bytes).is_ok()
                             {
-                                let _ = open::that(&path);
+                                // Save to file
+                                if let Some(dir) = dirs::config_dir() {
+                                    let dir = dir.join("vox").join("images");
+                                    if std::fs::create_dir_all(&dir).is_ok() {
+                                        let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+                                        let path = dir.join(format!("{}.png", ts));
+                                        if std::fs::write(&path, &bytes).is_ok() {
+                                            let _ = open::that(&path);
+                                        }
+                                    }
+                                }
+                                // Forward to ImageDownloaded for TUI protocol creation
+                                let _ = tx.send(WorkResult::ImageDownloaded { image_data: bytes.to_vec() }).await;
                             }
                         });
-                        self.input_mode = InputMode::Normal;
-                        self.status = "Image generated — opened in viewer".into();
-                        self.image_result = Some(format!("Image saved and opened.\n\nURL: {}", url));
+                        self.status = "Downloading image...".into();
+                        self.image_result = Some(format!("Image URL: {}", url));
                     } else {
                         self.input_mode = InputMode::Normal;
                         self.status = "No images generated".into();
