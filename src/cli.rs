@@ -21,14 +21,6 @@ pub struct GlobalOpts {
     #[arg(long, env = "VOX_MODEL")]
     pub model: Option<String>,
 
-    /// API key (overrides config)
-    #[arg(long, env = "VOX_API_KEY")]
-    pub api_key: Option<String>,
-
-    /// Base URL for the provider API
-    #[arg(long, env = "VOX_BASE_URL")]
-    pub base_url: Option<String>,
-
     /// Output format (text, json)
     #[arg(long, env = "VOX_FORMAT", default_value = "text")]
     pub format: String,

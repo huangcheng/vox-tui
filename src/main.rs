@@ -71,7 +71,7 @@ fn resolve_provider(global: &GlobalOpts, config: &Config) -> Result<ConfigProvid
         (true, false) => return Ok(ConfigProvider::StepFun),
         (false, true) => return Ok(ConfigProvider::MiniMax),
         (true, true) => {} // fall through to default_provider
-        (false, false) => return Err("No providers configured. Set VOX_API_KEY env var or edit ~/.config/vox/config.toml".into()),
+        (false, false) => return Err("No providers configured. Run `vox config edit` to set API keys, or edit ~/.config/vox/config.toml".into()),
     }
 
     // Use default_provider from config
@@ -185,36 +185,6 @@ fn apply_global_overrides(global: &GlobalOpts, config: &mut Config) {
             ConfigProvider::MiniMax => {
                 if let Some(ref mut minimax) = config.minimax {
                     minimax.model = Some(model.clone());
-                }
-            }
-        }
-    }
-
-    if let Some(api_key) = &global.api_key {
-        match config.default_provider {
-            ConfigProvider::StepFun => {
-                if let Some(ref mut stepfun) = config.stepfun {
-                    stepfun.api_key.clone_from(api_key);
-                }
-            }
-            ConfigProvider::MiniMax => {
-                if let Some(ref mut minimax) = config.minimax {
-                    minimax.api_key.clone_from(api_key);
-                }
-            }
-        }
-    }
-
-    if let Some(base_url) = &global.base_url {
-        match config.default_provider {
-            ConfigProvider::StepFun => {
-                if let Some(ref mut stepfun) = config.stepfun {
-                    stepfun.base_url = Some(base_url.clone());
-                }
-            }
-            ConfigProvider::MiniMax => {
-                if let Some(ref mut minimax) = config.minimax {
-                    minimax.base_url = Some(base_url.clone());
                 }
             }
         }
