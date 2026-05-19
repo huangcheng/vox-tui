@@ -1,0 +1,54 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "last_run": "2026-05-19T03:48:10.624Z",
+    "root": "/Users/huangcheng/Projects/vox-tui",
+    "include_patterns": [
+      "src/**/*.rs",
+      "Cargo.toml",
+      "config.example.toml"
+    ],
+    "exclude_patterns": [
+      "**/*.test.rs",
+      "target/**",
+      "node_modules/**"
+    ],
+    "exceptions": []
+  },
+  "file_hashes": {
+    "Cargo.toml": "a5bd51c8b9786e23b4aa7eed9cf8ca5b",
+    "config.example.toml": "5438c9ad3804dc14bbef9f6fba27510a",
+    "src/app.rs": "59965ca4e2fd1c899af73b1951063f89",
+    "src/capabilities.rs": "2ad8d09452da77901113853c6cce7544",
+    "src/cli.rs": "fe66f1a1f9da3ecf5158eb8a4eff61dc",
+    "src/command.rs": "e927440e3fa0c35e0fc7865625f52546",
+    "src/config.rs": "abe00912e11cf757739a98bc6728aa01",
+    "src/input.rs": "13ce6656d98ed9415b9ef1bf9975b775",
+    "src/lib.rs": "b3ee9aabd6f84dabb715d78b3796f9dc",
+    "src/main.rs": "3c817cb3f3d6d93f351966f518a0c53e",
+    "src/minimax.rs": "6bdd4a4d6423cdc1b5900dffbcd3d2d0",
+    "src/models.rs": "2ed20a6b74dbedfc1ffc88bb0b76769f",
+    "src/output.rs": "164547ea4569af3469995da768086a8a",
+    "src/provider.rs": "0dc4798ed631773bf09d713541a5e7f6",
+    "src/stepfun.rs": "920d97b298f7349ad8669af81c09d386",
+    "src/ui/layout.rs": "4b035bb3e6b751328ad5f59d75c6e0d6",
+    "src/ui/mod.rs": "e6a778433c221a0be735af98732a134a",
+    "src/ui/view/audio.rs": "972cda3cc6ffc303b22089c74f38398a",
+    "src/ui/view/chat.rs": "2f431a7f63ae7d2637ee335c38db2bac",
+    "src/ui/view/config.rs": "ae8a04dda905bed789ff6a5048e89f00",
+    "src/ui/view/image.rs": "beb93f66889bc268fbdb79ef6ca432c1",
+    "src/ui/view/mod.rs": "a97b4ee442598f7bbd7542bf317d212c",
+    "src/ui/widget/input.rs": "9b93f7350188f52190177074c4e95d42",
+    "src/ui/widget/message.rs": "fcdb054b3c1be99a273a44b5c7a40b19",
+    "src/ui/widget/mod.rs": "d79891914f92b131e1949d6cd82afe20",
+    "src/ui/widget/spinner.rs": "0bdbbb3c3574f7cb4b7ca52a98f111ca",
+    "src/ui/widget/status_bar.rs": "7b448a3e6fbe3341288cbe10159cd0c6"
+  },
+  "folder_hashes": {
+    ".": "297189c5fa5fe63a29013bfc665e35d6",
+    "src": "7778ede49f49324f42b82035866b94fb",
+    "src/ui": "cf652fd5db741f7081f82ca48fedfef4",
+    "src/ui/view": "8b52a1f8b855282dba7c61af6e4783b9",
+    "src/ui/widget": "eb5823fce804e2a06e416928e91c2683"
+  }
+}
