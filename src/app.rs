@@ -757,6 +757,7 @@ mod tests {
     fn test_handle_slash_command_provider() {
         let mut app = AppState::new();
         app.config = Config {
+            version: 1,
             default_provider: ConfigProvider::StepFun,
             stepfun: Some(crate::config::StepFunConfig {
                 api_key: "test".to_string(),
