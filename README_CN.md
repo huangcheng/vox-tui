@@ -18,6 +18,10 @@
 ## 安装
 
 ```bash
+# 从 crates.io 安装
+cargo install vox-ai
+
+# 或从源码构建
 git clone https://github.com/huangcheng/vox.git
 cd vox
 cargo build --release

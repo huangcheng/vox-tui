@@ -18,6 +18,10 @@ A Rust CLI that provides a unified interface to multiple AI providers (StepFun, 
 ## Install
 
 ```bash
+# From crates.io
+cargo install vox-ai
+
+# Or build from source
 git clone https://github.com/huangcheng/vox.git
 cd vox
 cargo build --release
