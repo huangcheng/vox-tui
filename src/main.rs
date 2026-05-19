@@ -413,8 +413,25 @@ async fn handle_image(cmd: ImageCommand, config: &Config, output: &Output) {
                             }
                         }
                     } else {
-                        for url in resp.urls {
-                            output.result(&url);
+                        // No explicit output path — download to current directory
+                        for (i, url) in resp.urls.iter().enumerate() {
+                            let filename = if resp.urls.len() == 1 {
+                                format!(
+                                    "vox_{}.png",
+                                    chrono::Local::now().format("%Y%m%d_%H%M%S")
+                                )
+                            } else {
+                                format!(
+                                    "vox_{}_{}.png",
+                                    chrono::Local::now().format("%Y%m%d_%H%M%S"),
+                                    i
+                                )
+                            };
+                            if let Err(e) = download_file(url, &filename).await {
+                                output.error(&format!("Failed to download {url}: {e}"), 1);
+                            } else {
+                                output.status(&format!("Saved to {filename}"));
+                            }
                         }
                     }
                 }
