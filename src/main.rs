@@ -158,7 +158,7 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
 
         // ── Setup & configuration ────────────────────────────────────
         Some(Commands::Doctor(_)) => unreachable!("handled above"),
-        Some(Commands::Providers(cmd)) => handle_providers(cmd, &config, &output),
+        Some(Commands::Providers(cmd)) => handle_providers(cmd, &mut config, &output),
         Some(Commands::Models(cmd)) => handle_models(cmd, &mut config, &output),
         Some(Commands::Config(_)) => unreachable!("handled above"),
         Some(Commands::Completion { .. }) => unreachable!("handled above"),
@@ -919,37 +919,99 @@ fn check_model_validity(config: &Config) -> DoctorCheckResult {
     }
 }
 
-fn handle_providers(cmd: ProvidersCommand, config: &Config, output: &Output) {
+fn handle_providers(cmd: ProvidersCommand, config: &mut Config, output: &Output) {
     match cmd {
         ProvidersCommand::List => {
-            output.result("Configured providers:");
             let providers = config.configured_providers();
             if providers.is_empty() {
-                output.result("  (none)");
-            } else {
-                for p in &providers {
-                    let (name, api_key_masked) = match p {
-                        ConfigProvider::StepFun => {
-                            let masked = config.stepfun.as_ref()
-                                .map(|s| {
-                                    if s.api_key.is_empty() { "(not set)".to_string() }
-                                    else { format!("{}***", &s.api_key[..4.min(s.api_key.len())]) }
-                                })
-                                .unwrap_or_else(|| "(not configured)".to_string());
-                            ("StepFun", masked)
-                        }
-                        ConfigProvider::MiniMax => {
-                            let masked = config.minimax.as_ref()
-                                .map(|m| {
-                                    if m.api_key.is_empty() { "(not set)".to_string() }
-                                    else { format!("{}***", &m.api_key[..4.min(m.api_key.len())]) }
-                                })
-                                .unwrap_or_else(|| "(not configured)".to_string());
-                            ("MiniMax", masked)
-                        }
-                    };
-                    let is_default = if p == &config.default_provider { " (default)" } else { "" };
-                    output.result(&format!("  {name}: {api_key_masked}{is_default}"));
+                output.result("No providers configured. Use `vox provider add <name> <api_key>` to add one.");
+                return;
+            }
+            output.result("Configured providers:");
+            for p in &providers {
+                let (name, api_key_masked) = match p {
+                    ConfigProvider::StepFun => {
+                        let masked = config.stepfun.as_ref()
+                            .map(|s| {
+                                if s.api_key.is_empty() { "(not set)".to_string() }
+                                else { format!("{}***", &s.api_key[..4.min(s.api_key.len())]) }
+                            })
+                            .unwrap_or_else(|| "(not configured)".to_string());
+                        ("StepFun", masked)
+                    }
+                    ConfigProvider::MiniMax => {
+                        let masked = config.minimax.as_ref()
+                            .map(|m| {
+                                if m.api_key.is_empty() { "(not set)".to_string() }
+                                else { format!("{}***", &m.api_key[..4.min(m.api_key.len())]) }
+                            })
+                            .unwrap_or_else(|| "(not configured)".to_string());
+                        ("MiniMax", masked)
+                    }
+                };
+                let is_default = if p == &config.default_provider { " (default)" } else { "" };
+                output.result(&format!("  {name}: {api_key_masked}{is_default}"));
+            }
+        }
+        ProvidersCommand::Add { provider, api_key, group_id } => {
+            match provider.to_lowercase().as_str() {
+                "stepfun" => {
+                    let sf = config.stepfun.get_or_insert_with(|| config::StepFunConfig {
+                        api_key: String::new(),
+                        base_url: None,
+                        model: None,
+                        models: config::ProviderModels::default(),
+                    });
+                    sf.api_key = api_key;
+                    if let Err(e) = config.save() {
+                        output.error(&format!("Failed to save config: {e}"), 1);
+                    } else {
+                        output.result("StepFun provider added successfully.");
+                    }
+                }
+                "minimax" => {
+                    let mm = config.minimax.get_or_insert_with(|| config::MiniMaxConfig {
+                        api_key: String::new(),
+                        group_id: None,
+                        base_url: None,
+                        model: None,
+                        models: config::ProviderModels::default(),
+                    });
+                    mm.api_key = api_key;
+                    if let Some(gid) = group_id {
+                        mm.group_id = Some(gid);
+                    }
+                    if let Err(e) = config.save() {
+                        output.error(&format!("Failed to save config: {e}"), 1);
+                    } else {
+                        output.result("MiniMax provider added successfully.");
+                    }
+                }
+                other => {
+                    output.error(&format!("Unknown provider: {other}. Use 'stepfun' or 'minimax'."), 1);
+                }
+            }
+        }
+        ProvidersCommand::Remove { provider } => {
+            match provider.to_lowercase().as_str() {
+                "stepfun" => {
+                    config.stepfun = None;
+                    if let Err(e) = config.save() {
+                        output.error(&format!("Failed to save config: {e}"), 1);
+                    } else {
+                        output.result("StepFun provider removed.");
+                    }
+                }
+                "minimax" => {
+                    config.minimax = None;
+                    if let Err(e) = config.save() {
+                        output.error(&format!("Failed to save config: {e}"), 1);
+                    } else {
+                        output.result("MiniMax provider removed.");
+                    }
+                }
+                other => {
+                    output.error(&format!("Unknown provider: {other}. Use 'stepfun' or 'minimax'."), 1);
                 }
             }
         }

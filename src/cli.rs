@@ -290,6 +290,23 @@ pub struct DoctorArgs {
 pub enum ProvidersCommand {
     /// List configured providers
     List,
+    /// Add or update a provider API key
+    Add {
+        /// Provider name (minimax, stepfun)
+        provider: String,
+
+        /// API key for the provider
+        api_key: String,
+
+        /// Group ID (required for MiniMax)
+        #[arg(long)]
+        group_id: Option<String>,
+    },
+    /// Remove a provider configuration
+    Remove {
+        /// Provider name (minimax, stepfun)
+        provider: String,
+    },
     /// Test provider connectivity
     Status {
         /// Provider name (minimax, stepfun)
@@ -584,6 +601,43 @@ mod tests {
         match cli.command {
             Some(Commands::Providers(ProvidersCommand::List)) => {}
             _ => panic!("Expected Providers List command"),
+        }
+    }
+
+    #[test]
+    fn test_providers_add() {
+        let cli = Cli::try_parse_from(["vox", "provider", "add", "minimax", "sk-test123"]).unwrap();
+        match cli.command {
+            Some(Commands::Providers(ProvidersCommand::Add { provider, api_key, group_id })) => {
+                assert_eq!(provider, "minimax");
+                assert_eq!(api_key, "sk-test123");
+                assert!(group_id.is_none());
+            }
+            _ => panic!("Expected Providers Add command"),
+        }
+    }
+
+    #[test]
+    fn test_providers_add_with_group_id() {
+        let cli = Cli::try_parse_from(["vox", "provider", "add", "minimax", "sk-test", "--group-id", "grp123"]).unwrap();
+        match cli.command {
+            Some(Commands::Providers(ProvidersCommand::Add { provider, api_key, group_id })) => {
+                assert_eq!(provider, "minimax");
+                assert_eq!(api_key, "sk-test");
+                assert_eq!(group_id, Some("grp123".to_string()));
+            }
+            _ => panic!("Expected Providers Add command with group_id"),
+        }
+    }
+
+    #[test]
+    fn test_providers_remove() {
+        let cli = Cli::try_parse_from(["vox", "provider", "remove", "stepfun"]).unwrap();
+        match cli.command {
+            Some(Commands::Providers(ProvidersCommand::Remove { provider })) => {
+                assert_eq!(provider, "stepfun");
+            }
+            _ => panic!("Expected Providers Remove command"),
         }
     }
 
