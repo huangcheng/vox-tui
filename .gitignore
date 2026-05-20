@@ -6,3 +6,5 @@
 output.*
 *.mp3
 *.wav
+.playwright-mcp/
+stitch-screen-*.png
