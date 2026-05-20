@@ -220,7 +220,7 @@ All commands accept these flags:
 | `--config <path>` | Custom config file | `--config /tmp/test.toml` |
 | `--quiet` | Suppress progress | `--quiet` |
 | `--verbose` | Debug output | `--verbose` |
-| `--tui` | Launch terminal UI | `vox --tui` |
+| `tui` | Launch terminal UI (requires tui feature) | `vox tui` |
 
 ## Provider Details
 
@@ -317,4 +317,4 @@ api_key = "your-key"
 4. **Config get masks keys**: `vox config get stepfun.api_key` returns `sk-yo***`, not the real key.
 5. **JSON output for scripting**: Use `--format json` when you need to parse output programmatically.
 6. **Output files**: Image and speech commands accept `-o` / `--out` for output path. Without it, files go to the current directory or `--output-dir`.
-7. **The `--tui` flag** requires the `tui` cargo feature. Binary releases ship without it by default.
+7. **`vox tui`** requires the `tui` cargo feature. Binary releases ship without it by default. Pass `--tab chat|image|audio|config` to open directly to a tab.

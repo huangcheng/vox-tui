@@ -44,10 +44,6 @@ pub struct GlobalOpts {
     /// Disable colored output
     #[arg(long, default_value_t = false)]
     pub no_color: bool,
-
-    /// Launch the terminal UI (requires tui feature)
-    #[arg(long, default_value_t = false)]
-    pub tui: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -102,6 +98,9 @@ pub enum Commands {
         /// Shell name (bash, zsh, fish, powershell, elvish)
         shell: String,
     },
+
+    /// Launch the terminal UI (requires tui feature)
+    Tui(TuiArgs),
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -283,6 +282,13 @@ pub struct DoctorArgs {
     /// Output format (text, json)
     #[arg(long, default_value = "text")]
     pub format: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TuiArgs {
+    /// Open directly to a specific tab (chat, image, audio, config)
+    #[arg(long)]
+    pub tab: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -788,13 +794,11 @@ mod tests {
     fn test_no_command_shows_help() {
         let cli = Cli::try_parse_from(["vox"]).unwrap();
         assert!(cli.command.is_none());
-        assert!(!cli.global.tui);
     }
 
     #[test]
-    fn test_tui_flag() {
-        let cli = Cli::try_parse_from(["vox", "--tui"]).unwrap();
-        assert!(cli.command.is_none());
-        assert!(cli.global.tui);
+    fn test_tui_subcommand() {
+        let cli = Cli::try_parse_from(["vox", "tui"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Tui(_))));
     }
 }

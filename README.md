@@ -52,7 +52,7 @@ vox search query "Rust programming language"
 vox vision analyze photo.jpg --prompt "What's in this image?"
 
 # Launch TUI mode
-vox --tui
+vox tui
 ```
 
 ## Configuration
@@ -113,6 +113,7 @@ Commands:
   models      Manage models
   config      Manage configuration
   completion  Shell completion script
+  tui         Launch terminal UI
 
 Options:
   --provider <PROVIDER>      Provider (minimax, stepfun)

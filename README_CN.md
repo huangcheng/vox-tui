@@ -52,7 +52,7 @@ vox search query "Rust 编程语言"
 vox vision analyze photo.jpg --prompt "描述这张图片"
 
 # 启动 TUI 模式
-vox --tui
+vox tui
 ```
 
 ## 配置
@@ -113,6 +113,7 @@ vox [OPTIONS] [COMMAND]
   models      管理模型
   config      管理配置
   completion  生成 Shell 补全脚本
+  tui         启动终端 UI
 
 选项：
   --provider <PROVIDER>      提供商（minimax, stepfun）

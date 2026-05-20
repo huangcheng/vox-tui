@@ -20,7 +20,8 @@ use std::io;
 use crate::capabilities::Capability;
 use crate::cli::{
     Cli, Commands, ConfigCommand, GlobalOpts, ImageCommand, ModelsCommand, MusicCommand,
-    ProvidersCommand, SearchCommand, SpeechCommand, TextCommand, VideoCommand, VisionCommand,
+    ProvidersCommand, SearchCommand, SpeechCommand, TextCommand, TuiArgs, VideoCommand,
+    VisionCommand,
 };
 use crate::config::{Config, Provider as ConfigProvider};
 use crate::output::{Output, OutputFormat};
@@ -34,19 +35,8 @@ async fn main() -> std::io::Result<()> {
 
     if cli.command.is_some() {
         run_cli(cli).await
-    } else if cli.global.tui {
-        #[cfg(feature = "tui")]
-        {
-            run_tui().await
-        }
-        #[cfg(not(feature = "tui"))]
-        {
-            Err(std::io::Error::other(
-                "TUI is not enabled in this build. Rebuild with: cargo build --features tui",
-            ))
-        }
     } else {
-        // No subcommand and no --tui: print help
+        // No subcommand: print help
         Cli::command().print_help().unwrap();
         println!();
         Ok(())
@@ -150,6 +140,19 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
             handle_completion(&shell);
             return Ok(());
         }
+        Some(Commands::Tui(args)) => {
+            #[cfg(feature = "tui")]
+            {
+                return run_tui(args).await;
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                let _ = args;
+                return Err(std::io::Error::other(
+                    "TUI is not enabled in this build. Rebuild with: cargo build --features tui",
+                ));
+            }
+        }
         _ => {}
     }
 
@@ -184,6 +187,7 @@ async fn run_cli(cli: Cli) -> std::io::Result<()> {
         Some(Commands::Models(_)) => unreachable!("handled above"),
         Some(Commands::Config(_)) => unreachable!("handled above"),
         Some(Commands::Completion { .. }) => unreachable!("handled above"),
+        Some(Commands::Tui(..)) => unreachable!("handled above"),
 
         None => {}
     }
@@ -1518,7 +1522,7 @@ use crate::ui::{
 };
 
 #[cfg(feature = "tui")]
-async fn run_tui() -> io::Result<()> {
+async fn run_tui(_args: TuiArgs) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
